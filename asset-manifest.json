@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/transjapsystem/static/css/main.068abaa8.css",
+    "main.js": "/transjapsystem/static/js/main.199569d3.js",
+    "static/js/453.8618f200.chunk.js": "/transjapsystem/static/js/453.8618f200.chunk.js",
+    "index.html": "/transjapsystem/index.html",
+    "main.068abaa8.css.map": "/transjapsystem/static/css/main.068abaa8.css.map",
+    "main.199569d3.js.map": "/transjapsystem/static/js/main.199569d3.js.map",
+    "453.8618f200.chunk.js.map": "/transjapsystem/static/js/453.8618f200.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.068abaa8.css",
+    "static/js/main.199569d3.js"
+  ]
+}
