@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(CI=true npx --no-install react-scripts build)",
+      "Bash(npx --no-install react-scripts build)",
+      "Bash(BROWSER=none npx --no-install react-scripts start)"
+    ]
+  }
+}
