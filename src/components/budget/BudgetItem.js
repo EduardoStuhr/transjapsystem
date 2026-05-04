@@ -6,7 +6,6 @@ import Select from "../ui/Select";
 import { Row } from "../ui/Card";
 import EquipmentSelector from "./EquipmentSelector";
 import ComposicaoPreco from "./ComposicaoPreco";
-import SpreadsheetAuditPanel from "./SpreadsheetAuditPanel";
 import { calcItemCost } from "../../services/costEngine";
 import { fmt, fmtBRL, uid } from "../../utils/format";
 import S from "../../styles/tokens";
@@ -356,7 +355,6 @@ export default function BudgetItem({
             {!isVB && expanded && (
               <>
                 <ComposicaoPreco detalhes={detalhes} unit={item.unit} />
-                <SpreadsheetAuditPanel />
               </>
             )}
 
