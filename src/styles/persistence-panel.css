@@ -1,0 +1,398 @@
+/* ========== BOTÃO FLUTUANTE ========== */
+.persistence-btn {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  transition: all 0.3s ease;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.persistence-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.6);
+}
+
+.persistence-btn:active {
+  transform: scale(0.95);
+}
+
+/* ========== MODAL ========== */
+.persistence-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.persistence-modal {
+  background: #ffffff;
+  border-radius: 12px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ========== HEADER ========== */
+.persistence-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #e0e0e0;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 12px 12px 0 0;
+}
+
+.persistence-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.persistence-close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.persistence-close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ========== BODY ========== */
+.persistence-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ========== AÇÕES ========== */
+.persistence-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.persistence-action-btn {
+  flex: 1;
+  padding: 12px 16px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  font-size: 14px;
+}
+
+.persistence-action-btn.export {
+  background: #667eea;
+  color: white;
+}
+
+.persistence-action-btn.export:hover {
+  background: #5568d3;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.persistence-action-btn.import {
+  background: #48bb78;
+  color: white;
+}
+
+.persistence-action-btn.import:hover {
+  background: #38a169;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(72, 187, 120, 0.3);
+}
+
+/* ========== STORAGE INFO ========== */
+.persistence-storage-info {
+  background: #f7fafc;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border-left: 4px solid #667eea;
+}
+
+.persistence-storage-info p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #2d3748;
+}
+
+.persistence-progress {
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 10px 0;
+}
+
+.persistence-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.persistence-storage-percent {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #718096;
+  text-align: right;
+  margin-bottom: 0 !important;
+}
+
+/* ========== LISTA ========== */
+.persistence-list {
+  margin-bottom: 20px;
+}
+
+.persistence-list h3 {
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  color: #2d3748;
+  font-weight: 600;
+}
+
+.persistence-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.persistence-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: #f7fafc;
+  border-radius: 8px;
+  border-left: 3px solid #667eea;
+  transition: all 0.2s ease;
+}
+
+.persistence-item:hover {
+  background: #edf2f7;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.persistence-item-info h4 {
+  margin: 0 0 4px 0;
+  font-size: 14px;
+  color: #2d3748;
+  font-weight: 600;
+}
+
+.persistence-item-info p {
+  margin: 0;
+  font-size: 12px;
+  color: #718096;
+}
+
+.persistence-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.persistence-item-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.persistence-item-btn.load {
+  background: #667eea;
+  color: white;
+}
+
+.persistence-item-btn.load:hover {
+  background: #5568d3;
+  transform: scale(1.05);
+}
+
+.persistence-item-btn.delete {
+  background: #f56565;
+  color: white;
+}
+
+.persistence-item-btn.delete:hover {
+  background: #e53e3e;
+  transform: scale(1.05);
+}
+
+/* ========== LOADING/EMPTY ========== */
+.persistence-loading,
+.persistence-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #718096;
+  font-size: 14px;
+}
+
+.persistence-loading {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ========== FOOTER ========== */
+.persistence-footer {
+  padding-top: 20px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.persistence-clear-btn {
+  width: 100%;
+  padding: 12px 16px;
+  background: #f56565;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.persistence-clear-btn:hover {
+  background: #e53e3e;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 101, 101, 0.3);
+}
+
+.persistence-clear-btn:active {
+  transform: translateY(0);
+}
+
+/* ========== SCROLL ========== */
+.persistence-items::-webkit-scrollbar,
+.persistence-modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.persistence-items::-webkit-scrollbar-track,
+.persistence-modal-body::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.persistence-items::-webkit-scrollbar-thumb,
+.persistence-modal-body::-webkit-scrollbar-thumb {
+  background: #667eea;
+  border-radius: 10px;
+}
+
+.persistence-items::-webkit-scrollbar-thumb:hover,
+.persistence-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #5568d3;
+}
+
+/* ========== RESPONSIVO ========== */
+@media (max-width: 600px) {
+  .persistence-modal {
+    width: 95%;
+    max-height: 95vh;
+  }
+
+  .persistence-modal-header h2 {
+    font-size: 18px;
+  }
+
+  .persistence-actions {
+    flex-direction: column;
+  }
+
+  .persistence-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .persistence-item-actions {
+    width: 100%;
+    margin-top: 10px;
+  }
+
+  .persistence-item-btn {
+    flex: 1;
+  }
+
+  .persistence-btn {
+    bottom: 10px;
+    right: 10px;
+    width: 50px;
+    height: 50px;
+    font-size: 24px;
+  }
+}
