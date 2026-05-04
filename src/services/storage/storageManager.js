@@ -144,7 +144,7 @@ class StorageManager {
   /**
    * Salva dados no IndexedDB (interno)
    */
-  private async _salvarNoIndexedDB(dados) {
+  async _salvarNoIndexedDB(dados) {
     return new Promise((resolve, reject) => {
       if (!this.db) {
         reject(new Error('IndexedDB não inicializado'));
