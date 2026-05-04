@@ -1,16 +1,16 @@
 {
   "files": {
     "main.css": "/transjapsystem/static/css/main.e787ecdf.css",
-    "main.js": "/transjapsystem/static/js/main.1b811c48.js",
+    "main.js": "/transjapsystem/static/js/main.0b1e3540.js",
     "static/js/453.8618f200.chunk.js": "/transjapsystem/static/js/453.8618f200.chunk.js",
     "static/media/logo.png": "/transjapsystem/static/media/logo.a0c2c7b5763efe3e657f.png",
     "index.html": "/transjapsystem/index.html",
     "main.e787ecdf.css.map": "/transjapsystem/static/css/main.e787ecdf.css.map",
-    "main.1b811c48.js.map": "/transjapsystem/static/js/main.1b811c48.js.map",
+    "main.0b1e3540.js.map": "/transjapsystem/static/js/main.0b1e3540.js.map",
     "453.8618f200.chunk.js.map": "/transjapsystem/static/js/453.8618f200.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.e787ecdf.css",
-    "static/js/main.1b811c48.js"
+    "static/js/main.0b1e3540.js"
   ]
 }
