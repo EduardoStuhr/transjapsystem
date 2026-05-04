@@ -7,7 +7,9 @@ import Servicos from "./pages/Servicos";
 import ListaOrcamentos from "./pages/ListaOrcamentos";
 import NovoOrcamento from "./pages/NovoOrcamento";
 import VisualizarOrcamento from "./pages/VisualizarOrcamento";
+import PersistencePanel from "./components/PersistencePanel";
 import { useStore } from "./store";
+import { storageManager } from "./services/storage/storageManager";
 import "./styles/global.css";
 import "./styles/components.css";
 
@@ -18,9 +20,10 @@ export default function App() {
   const [editQ, setEditQ] = useState(null);
   const [viewQ, setViewQ] = useState(null);
 
-  // Inicializa o Agente
+  // Inicializa o Agente e o Sistema de Persistência
   useEffect(() => {
     runContinuousImprovementAgent();
+    storageManager.initIndexedDB(); // 💾 Inicializa armazenamento
   }, [runContinuousImprovementAgent]);
 
   const handleSaveQ = useCallback((q) => {
@@ -36,6 +39,9 @@ export default function App() {
 
   return (
     <Layout page={page} setPage={setPage} quotations={quotations}>
+      {/* 💾 Painel de Persistência - Gerencia salvamentos */}
+      <PersistencePanel orcamentoNome="TRANSJAP" />
+
       {page === "dashboard"    && <Dashboard    quotations={quotations} equipment={equipment} params={params} />}
       {page === "params"       && <Parametros   params={params} setParams={setParams} />}
       {page === "equipamentos" && <Equipamentos equipment={equipment} setEquipment={setEquipment} params={params} />}
