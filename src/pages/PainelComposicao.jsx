@@ -115,7 +115,7 @@ const calcVolumeComEmpolamento = (volume, fator) => {
   const v = toNumber(volume, 0);
   const f = toNumber(fator, 0);
   if (v <= 0 || f <= 0) return 0;
-  return f < 1 ? Math.max(v - (v * f), 0) : v * f;
+  return v * f;
 };
 
 // ── Decompõe um item em linhas por equipamento (R$/m³ por componente) ──
@@ -162,9 +162,9 @@ const buildItemRows = (item) => {
     const m3EmpoladoDia = m3EmpoladoHoraFrota * horasDia;
     const viagensDia = viagensHora * horasDia * qtdEq;
     const usaCicloEfetivo = usaCiclo && viagensHora > 0 && volumeEmpoladoPorViagem > 0 && qtdEq > 0;
-    const horasComProducao = usaCicloEfetivo && m3EmpoladoHoraFrota > 0
-      ? volumeInSitu / m3EmpoladoHoraFrota
-      : horasMaquinaRateio;
+    // Horas-máquina canônicas: volumeInSitu ÷ Σ(baseProductivity × qty).
+    // O ciclo de viagens fica apenas como metadata de auditoria visual.
+    const horasComProducao = horasMaquinaRateio;
 
     const directUnit = (field) => {
       if (e[field] == null) return null;
@@ -175,11 +175,6 @@ const buildItemRows = (item) => {
       const direct = directUnit(directField);
       if (direct != null) return direct;
       const row = e[rowName];
-      if (rowName === "diesel" && usaCicloEfetivo) {
-        return denominador > 0 && row?.valorTotal != null
-          ? (toNumber(row.valorTotal) * horasComProducao) / denominador
-          : 0;
-      }
       return denominador > 0 && row?.valorTotal != null
         ? (toNumber(row.valorTotal) * horasMaquinaRateio) / denominador
         : 0;

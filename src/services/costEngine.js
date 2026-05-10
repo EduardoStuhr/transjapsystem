@@ -45,11 +45,15 @@ const usaCicloViagensCategoria = (eq) =>
 const usaDenominadorEmpolado = (eq) =>
   isEscavadeira(eq) || isTratorOuGrade(eq) || isRolo(eq) || isPipa(eq);
 
+// Fórmula canônica: volume_empolado = volume_in_situ × fator_empolamento.
+// O fator é sempre tratado como MULTIPLICADOR (1,36 → +36 %). Compat com
+// versões antigas que tratavam f<1 como "perda" foi removida porque ela
+// gerava drift silencioso quando o usuário digitava 0,36 esperando acréscimo.
 const calcVolumeComEmpolamento = (volume, fatorEmpolamento) => {
   const v = toNum(volume, 0);
   const f = toNum(fatorEmpolamento, 0);
   if (v <= 0 || f <= 0) return 0;
-  return f < 1 ? Math.max(v - (v * f), 0) : v * f;
+  return v * f;
 };
 
 const getItemVolumes = (item = {}, params = {}) => {
@@ -112,13 +116,6 @@ const calcVolumeEmpoladoPorViagem = (item = {}, params = {}) => {
     return { volumeInSituViagem: 0, fatorEmpolamento, perdaVolumeViagem: 0, volumeEmpoladoViagem: 0, modo: "sem_volume" };
   }
 
-  // Compatibilidade: o sistema vinha usando fator 1.36 como multiplicador.
-  // Se o usuário digitar 0.36, tratamos como perda informada (36%) e subtraímos.
-  if (fatorEmpolamento > 0 && fatorEmpolamento < 1) {
-    const perdaVolumeViagem = volumeInSituViagem * fatorEmpolamento;
-    return { volumeInSituViagem, fatorEmpolamento, perdaVolumeViagem, volumeEmpoladoViagem: calcVolumeComEmpolamento(volumeInSituViagem, fatorEmpolamento), modo: "perda" };
-  }
-
   return {
     volumeInSituViagem,
     fatorEmpolamento,
@@ -143,13 +140,15 @@ const calcDieselUnitarioPorEquipamento = ({
   const viagensHora = getViagensPorHora(eq);
   const horasDia = getHorasDiaItem(item, params);
   const viagem = calcVolumeEmpoladoPorViagem(item, params);
+  // Ciclo de viagens (viagensPorHora) é METADATA informativa. As horas-máquina
+  // canônicas vêm sempre de volumeInSitu ÷ Σ(baseProductivity × qty) via
+  // `fallbackHoras`. Antes, o ciclo sobrescrevia as horas e causava drift de
+  // ~4 % em equipamentos com viagensPorHora configurado.
   const usaCicloViagens = usaCicloViagensCategoria(eq) && viagensHora > 0 && viagem.volumeEmpoladoViagem > 0 && quantidade > 0;
 
   const m3EmpoladoHoraMaquina = viagensHora * viagem.volumeEmpoladoViagem;
   const m3EmpoladoHoraFrota = m3EmpoladoHoraMaquina * quantidade;
-  const horasComProducao = usaCicloViagens && m3EmpoladoHoraFrota > 0
-    ? volumes.volumeInSitu / m3EmpoladoHoraFrota
-    : fallbackHoras;
+  const horasComProducao = fallbackHoras;
   const dieselTotal = dieselHoraTotal * horasComProducao;
 
   return {
@@ -550,23 +549,26 @@ const calcItemCostNovo = (item, equipmentMap, params) => {
     const eq  = equipmentMap[line.equipmentId];
     const c   = calcEquipmentHourlyCost(eq, params, item.soilCategory || "1ª");
 
-    const dieselCalc = calcDieselUnitarioPorEquipamento({
-      eq,
-      item,
-      params,
-      volumes,
-      quantidade: qty,
-      dieselHoraTotal: c.diesel_hora * qty,
-      fallbackHoras: horasMaquinaNecessarias,
-    });
-    const refDiesel = { tipo: dieselCalc.denominadorTipo, valor: dieselCalc.denominador };
-
-    const totalDieselEq = dieselCalc.dieselTotal;
+    // Horas-máquina vêm SEMPRE de volumeInSitu ÷ Σ(baseProductivity × qty).
+    // Não aplicar eficiência, fator solo, fator logística nem ciclo de viagens
+    // (esses fatores não podem contaminar o rateio de diesel/manut/MO).
+    // O cálculo de ciclo (viagensPorHora) é preservado apenas como metadata
+    // de auditoria — não substitui mais as horas canônicas.
+    const refDiesel = getVolumeRefDieselPorCategoria(eq?.category, params, volumes);
+    const totalDieselEq = c.diesel_hora * horasMaquinaNecessarias * qty;
     const totalManutEq  = c.manutencao_hora * horasProjeto * qty;
     const totalMOEq     = c.operador_hora   * horasProjeto * qty;
     const totalIndiretoEq = indiretoR$M3PorPessoa * volumeInSitu;
 
-    const dieselEqM3   = dieselCalc.valorUnitario;
+    // Metadata informativa do ciclo de viagens (não influencia mais o cálculo).
+    const dieselCalcMeta = calcDieselUnitarioPorEquipamento({
+      eq, item, params, volumes,
+      quantidade: qty,
+      dieselHoraTotal: c.diesel_hora * qty,
+      fallbackHoras: horasMaquinaNecessarias,
+    });
+
+    const dieselEqM3   = refDiesel.valor   > 0 ? totalDieselEq   / refDiesel.valor   : 0;
     const manutEqM3    = refManut.valor    > 0 ? totalManutEq    / refManut.valor    : 0;
     const moEqM3       = refMO.valor       > 0 ? totalMOEq       / refMO.valor       : 0;
     const indiretoEqM3 = refIndireto.valor > 0 ? totalIndiretoEq / refIndireto.valor : 0;
@@ -599,7 +601,7 @@ const calcItemCostNovo = (item, equipmentMap, params) => {
       operador_hora: c.operador_hora,
 
       // horas usadas em cada parcela
-      horas_diesel: dieselCalc.horasComProducao,
+      horas_diesel: horasMaquinaNecessarias,
       horas_manutencao: horasProjeto,
       horas_mo: horasProjeto,
 
@@ -632,7 +634,7 @@ const calcItemCostNovo = (item, equipmentMap, params) => {
       // Compat retro (consumido por algumas telas)
       denominador_rateio: refDiesel.valor,
       base_rateio: refDiesel.tipo,
-      diesel_calculo: dieselCalc,
+      diesel_calculo: dieselCalcMeta,
     });
   }
 
