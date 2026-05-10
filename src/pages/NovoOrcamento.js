@@ -7,14 +7,22 @@ import BudgetItem from "../components/budget/BudgetItem";
 import BudgetSummary from "../components/budget/BudgetSummary";
 import { calcQuotationTotals } from "../services/costEngine";
 import { uid, today } from "../utils/format";
+import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
 
+// volumeEmpolado NUNCA persiste como propriedade do item.
+// É sempre derivado em tempo real de (volumeInSitu × fatorEmpolamento) no engine
+// e na UI (BudgetItem / ComposicaoPreco / PainelComposicao). Persistir um valor
+// estático causa drift quando o usuário edita volumeInSitu ou fatorEmpolamento.
 const emptyItem = () => ({
   id: uid(),
   serviceId: "",
   desc: "",
   unit: "",
   quantity: 1,
+  volumeInSitu: 1,
+  fatorEmpolamento: "",
+  volumeInSituPorViagem: ASSUMPTIONS.transporte.volumePorViagemInSitu,
   adjustedProductivity: 0,
   terrainFactor: 1,
   distanceFactor: 1,
@@ -31,11 +39,23 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   );
 
   const [step, setStep] = useState(1);
-  const [expandedItem, setExpandedItem] = useState(null);
   const [meta, setMeta] = useState(
     editQuotation
-      ? { client: editQuotation.client, cnpj: editQuotation.cnpj, project: editQuotation.project, location: editQuotation.location, prazo: editQuotation.prazo, notes: editQuotation.notes || "" }
-      : { client: "", cnpj: "", project: "", location: "", prazo: "", notes: "" }
+      ? {
+          client: editQuotation.client,
+          cnpj: editQuotation.cnpj,
+          project: editQuotation.project,
+          location: editQuotation.location,
+          prazo: editQuotation.prazo,
+          notes: editQuotation.notes || "",
+          volumeEmpoladoObra: editQuotation.volumeEmpoladoObra ?? 0,
+          totalHorasProjeto:  editQuotation.totalHorasProjeto  ?? 0,
+        }
+      : {
+          client: "", cnpj: "", project: "", location: "", prazo: "", notes: "",
+          volumeEmpoladoObra: 0,
+          totalHorasProjeto:  0,
+        }
   );
   const [items,    setItems]    = useState(editQuotation ? editQuotation.items : [emptyItem()]);
   const [bdi,      setBdi]      = useState(editQuotation?.bdi      ?? params.defaultBDI);
@@ -61,6 +81,17 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       }
 
       const up = { ...it, [key]: value };
+      const fatorPadrao = params?.fator_empolamento || (1 + ASSUMPTIONS.empolamento.fatorPadrao);
+
+      if (key === "quantity") {
+        const volumeInSitu = parseFloat(value) || 0;
+        up.quantity = volumeInSitu;
+        up.volumeInSitu = volumeInSitu;
+      }
+
+      if (key === "fatorEmpolamento") {
+        up.fatorEmpolamento = parseFloat(value) || 0;
+      }
 
       if (key === "serviceId") {
         const svc = services.find(s => s.id === value);
@@ -69,9 +100,14 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
           up.desc = svc.name;
           up.adjustedProductivity = svc.baseProductivity;
           up.category = svc.category; // Calibragem RONMA
-          up.terrainFactor = svc.efficiency || 0.85; // Eficiência padrão do serviço
+          up.terrainFactor = svc.efficiency || ASSUMPTIONS.produtividade.eficienciaPadrao;
+          up.volumeInSitu = parseFloat(up.volumeInSitu) || parseFloat(up.quantity) || 0;
+          up.fatorEmpolamento = parseFloat(up.fatorEmpolamento) || fatorPadrao;
         }
       }
+
+      // volumeEmpolado é sempre derivado downstream — não persiste aqui.
+      delete up.volumeEmpolado;
 
       return up;
     }));
@@ -84,6 +120,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   const generateAutoItems = () => {
     const numMachines = items.reduce((acc, it) => acc + it.equipmentLines.reduce((s, line) => s + line.quantity, 0), 0);
     const mobilCost = (params.mobilizationDistance * params.flatbedCostPerKm) * numMachines;
+    const fatorPadrao = params?.fator_empolamento || (1 + ASSUMPTIONS.empolamento.fatorPadrao);
     
     const mobilSvc = services.find(s => s.name.toLowerCase().includes("mobiliza"));
     const topoSvc = services.find(s => s.name.toLowerCase().includes("topografia"));
@@ -97,6 +134,9 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
         desc: mobilSvc.name,
         unit: mobilSvc.unit,
         quantity: 1,
+        volumeInSitu: 1,
+        fatorEmpolamento: fatorPadrao,
+        volumeInSituPorViagem: ASSUMPTIONS.transporte.volumePorViagemInSitu,
         adjustedProductivity: mobilSvc.baseProductivity,
         manualCost: mobilCost, // Custo da mobilização como custo manual
       });
@@ -109,8 +149,11 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
         desc: topoSvc.name,
         unit: topoSvc.unit,
         quantity: params.totalClearingArea, // Proporcional à área
+        volumeInSitu: params.totalClearingArea,
+        fatorEmpolamento: fatorPadrao,
+        volumeInSituPorViagem: ASSUMPTIONS.transporte.volumePorViagemInSitu,
         adjustedProductivity: topoSvc.baseProductivity,
-        manualCost: 0, 
+        manualCost: 0,
         equipmentLines: [] // Espera-se que o usuário adicione a equipe ou que a topografia tenha custo manual
       });
     }
@@ -130,6 +173,8 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       createdAt: editQuotation?.createdAt || today(),
       status,
       ...meta,
+      volumeEmpoladoObra: meta.volumeEmpoladoObra,
+      totalHorasProjeto:  meta.totalHorasProjeto,
       items: totals.itemsCalc,
       bdi, adminPct, mobilPct, riskPct,
       subtotal:      totals.subtotal,
@@ -193,7 +238,20 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
           </Row>
           <Row>
             <Input label="Prazo de Execução" value={meta.prazo} onChange={v => setMeta(m => ({ ...m, prazo: v }))} placeholder="Ex: 45 dias úteis" />
-            <div />
+            <Input
+              label="Total de horas do projeto (h)"
+              value={meta.totalHorasProjeto || ""}
+              onChange={v => setMeta(m => ({ ...m, totalHorasProjeto: parseFloat(v) || 0 }))}
+              type="number" step="1" min="0"
+              placeholder="Ex: 1782 (250 dias × 9h)"
+            />
+            <Input
+              label="Volume empolado total (m³)"
+              value={meta.volumeEmpoladoObra || ""}
+              onChange={v => setMeta(m => ({ ...m, volumeEmpoladoObra: parseFloat(v) || 0 }))}
+              type="number" step="0.01" min="0"
+              placeholder="Volume manual da obra"
+            />
           </Row>
           <Input label="Observações" value={meta.notes} onChange={v => setMeta(m => ({ ...m, notes: v }))} />
           <div style={{ marginTop: 8 }}>
@@ -215,10 +273,10 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               equipmentOptions={eqOptions}
               serviceOptions={svcOptions}
               params={params}
+              volumeEmpoladoObra={meta.volumeEmpoladoObra}
+              totalHorasProjeto={meta.totalHorasProjeto}
               onUpdate={updateItem}
               onDelete={() => delItem(idx)}
-              expanded={expandedItem === item.id}
-              onToggleExpanded={() => setExpandedItem(prev => (prev === item.id ? null : item.id))}
             />
           ))}
           <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>

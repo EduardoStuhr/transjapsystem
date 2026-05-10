@@ -6,6 +6,7 @@ import Select from "../components/ui/Select";
 import Modal from "../components/ui/Modal";
 import { Badge, Row } from "../components/ui/Card";
 import { uid, fmt } from "../utils/format";
+import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
 
 const UNITS = ["M³", "M²", "VB", "Unid", "km", "h", "t"];
@@ -16,7 +17,7 @@ const CAT_COLORS = {
   Acabamento: S.accent3, Apoio: S.accent,
 };
 
-const EMPTY_SVC = { name: "", unit: "M³", category: "Escavação", desc: "", baseProductivity: 0, efficiency: 0.85 };
+const EMPTY_SVC = { name: "", unit: "M³", category: "Escavação", desc: "", baseProductivity: 0, efficiency: ASSUMPTIONS.produtividade.eficienciaPadrao };
 
 export default function Servicos({ services, setServices }) {
   const [modal, setModal] = useState(null);

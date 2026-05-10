@@ -1,16 +1,62 @@
 import { uid } from "../utils/format";
+import { ASSUMPTIONS } from "../config/assumptions.config";
 
 // ══════════════════════════════════════════════════════════════════
 // PARÂMETROS GLOBAIS — Calibrados a partir da planilha RONMA
 // (Custo_Obra_Ronma_-_Rev_00_2.xlsx)
+// Defaults vêm de src/config/assumptions.config.js (fonte única).
 // ══════════════════════════════════════════════════════════════════
 export const INITIAL_PARAMS = {
-  dieselPrice:           5.50,
-  hoursPerDay:           8,
-  hoursPerMonth:         160,
-  fator_encargos:        1.70,   // 70% de encargos sobre o salário
-  percentual_manutencao: 0.10,   // 10% sobre o diesel
-  percentual_indiretos:  0.10,   // legado — usado apenas se modo absoluto estiver desligado
+  dieselPrice:           ASSUMPTIONS.diesel.precoLitro,
+  hoursPerDay:           ASSUMPTIONS.jornada.horasPorDia,
+  hoursPerMonth:         ASSUMPTIONS.jornada.horasPorMes,
+  fator_encargos:        ASSUMPTIONS.encargos.fator,
+  percentual_manutencao: ASSUMPTIONS.manutencao.percentualSobreDiesel,
+  percentual_indiretos:  ASSUMPTIONS.indireto.percentualLegadoSobreParcial,
+  // ── Tabela R$/h por categoria de operador (espelho da planilha) ──
+  // Chave canônica: `categorias_operador` (modelo novo).
+  // `custo_hh_por_categoria_operador` mantido como alias para compat com versão anterior.
+  categorias_operador:             { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperador },
+  custo_hh_por_categoria_operador: { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperador },
+
+  // ── Pessoas indiretas: R$/h por tipo + cálculo dinâmico de alimentação ──
+  pessoas_indiretas:        { ...ASSUMPTIONS.pessoasIndiretas.porTipo },
+  alimentacao_valor_dia:    ASSUMPTIONS.pessoasIndiretas.alimentacao.valorDia,
+  alimentacao_dias_mes:     ASSUMPTIONS.pessoasIndiretas.alimentacao.diasMes,
+  alimentacao_horas_ref:    ASSUMPTIONS.pessoasIndiretas.alimentacao.horasRef,
+
+  // ── Markup por categoria de equipamento (substitui fatorBase × ajusteFinal) ──
+  markup_por_categoria:     { ...ASSUMPTIONS.markupPorCategoria },
+
+  // ── Volume de referência (denominador) por parcela e categoria ──
+  // O custo R$/m³ de cada parcela divide o total R$ pelo volume aqui escolhido:
+  //   - Diesel: por categoria (Patrol é exceção e usa in_situ porque trabalha sobre
+  //             a área in situ, não sobre material remexido / empolado)
+  //   - Manutenção e MO: sempre empolado (espelha consumo real do equipamento)
+  //   - Indireto: sempre in situ (rateio por volume entregue)
+  volume_ref_diesel_por_categoria: {
+    "Escavadeira":    "empolado",
+    "Motoniveladora": "in_situ",   // Patrol — exceção
+    "Patrol":         "in_situ",   // alias defensivo
+    "Trator":         "empolado",
+    "Grade":          "empolado",
+    "Compactador":    "empolado",
+    "Rolo":           "empolado",
+    "Pipa":           "empolado",
+    "Caminhão":       "empolado",
+    "_default":       "empolado",
+  },
+  volume_ref_manutencao: "empolado",
+  volume_ref_mo:         "empolado",
+  volume_ref_indireto:   "in_situ",
+
+  // ── Imposto sobre lucro estimado ──
+  aliquota_imposto_lucro:   ASSUMPTIONS.comercial.percentualImposto,
+
+  // ── Defaults editáveis (overrideáveis por orçamento) ──
+  fator_empolamento:        1 + ASSUMPTIONS.empolamento.fatorPadrao,
+  dias_uteis_mes:           ASSUMPTIONS.jornada.diasUteisMes,
+  horas_dia:                ASSUMPTIONS.jornada.horasPorDia,
   // ── Custos indiretos do PROJETO (modo absoluto, R$/mês) ──
   // Quando a soma > 0, o engine rateia o indireto pelo tempo real de obra
   // (dias_obra_mes × hoursPerDay) e aloca por produtividade real do serviço.
@@ -23,16 +69,16 @@ export const INITIAL_PARAMS = {
   dias_obra_mes:                   19,  // dias úteis efetivos / mês (RONMA referência)
   // Fatores da planilha (Composição de Preço)
   produtividadePadrao:   13.5,
-  fatorBase:             2.3,
-  ajusteFinal:           1.2,
-  markup_padrao:         1.66,   // legado (calibragem antiga) — preferir fatorBase/ajusteFinal
+  fatorBase:             ASSUMPTIONS.markup.fatorBase,
+  ajusteFinal:           ASSUMPTIONS.markup.ajusteFinal,
+  markup_padrao:         ASSUMPTIONS.markup.padraoLegado,
   laborRatio:            15,     // % faturamento mão de obra
   equipmentRatio:        85,     // % faturamento equipamentos
-  defaultBDI:            20,
-  transportSpeed:        25,     // km/h
-  cycleTimeBase:         10,     // min (carga + descarga)
-  flatbedCostPerKm:      15.00,
-  mobilizationDistance:  100,
+  defaultBDI:            ASSUMPTIONS.comercial.bdiPadrao,
+  transportSpeed:        ASSUMPTIONS.transporte.velocidadeKmH,
+  cycleTimeBase:         ASSUMPTIONS.transporte.cicloBaseMin,
+  flatbedCostPerKm:      ASSUMPTIONS.transporte.custoPranchaPorKm,
+  mobilizationDistance:  ASSUMPTIONS.transporte.distanciaMobilizacaoKm,
   totalClearingArea:     13321.10, // m² — referência RONMA
 };
 
@@ -40,18 +86,26 @@ export const INITIAL_PARAMS = {
 // EQUIPAMENTOS — Produtividades verificadas contra "Dados do Contrato"
 // e "CUSTOS EQUIPAMENTOS" da planilha RONMA
 // ══════════════════════════════════════════════════════════════════
+// Cada equipamento pode declarar:
+//   - custo_h_manutencao   (R$/h)  → manutenção tabelada (planilha CUSTOS EQUIPAMENTOS coluna E)
+//   - categoria_operador   (string snake_case) → resolve R$/h via params.categorias_operador
+//   - custo_h_operador     (R$/h)  → override direto (vence categoria_operador)
+//   - baseProductivity     (un/h)  → produção do equipamento (usada pelo modelo novo)
+//   - productivity         (un/h)  → alias retro-compat
+//   - viagensPorHora       → viagens/h da escavadeira (cálculo de diesel por ciclo)
+//   - salario_operador_mensal      → legado (usado quando os campos acima estão vazios)
 export const INITIAL_EQUIPMENT = [
-  { id: uid(), name: "Escavadeira 312 DL",              category: "Escavadeira",    consumption: 12, salario_operador_mensal: 3500, active: true, productivity: 96     },
-  { id: uid(), name: "Escavadeira 320DL",               category: "Escavadeira",    consumption: 17, salario_operador_mensal: 3500, active: true, productivity: 153.6  },
-  { id: uid(), name: "Escavadeira 336DL",               category: "Escavadeira",    consumption: 37, salario_operador_mensal: 3500, active: true, productivity: 240    },
-  { id: uid(), name: "Escavadeira 345 GC",              category: "Escavadeira",    consumption: 39, salario_operador_mensal: 3500, active: true, productivity: 288    },
-  { id: uid(), name: "Trator de Esteiras Leve",         category: "Trator",         consumption: 28, salario_operador_mensal: 2500, active: true, productivity: 393.6  },
-  { id: uid(), name: "Trator de Esteiras Pesado",       category: "Trator",         consumption: 39, salario_operador_mensal: 2500, active: true, productivity: 320    },
-  { id: uid(), name: "Motoniveladora (Patrol)",         category: "Motoniveladora", consumption: 17, salario_operador_mensal: 2500, active: true, productivity: 2000   },
-  { id: uid(), name: "Grade Agrícola",                  category: "Grade",          consumption: 15, salario_operador_mensal: 2000, active: true, productivity: 1500   },
-  { id: uid(), name: "Rolo Compactador Pé de Carneiro", category: "Compactador",    consumption: 15, salario_operador_mensal: 2000, active: true, productivity: 250    },
-  { id: uid(), name: "Caminhão Pipa",                   category: "Caminhão",       consumption: 8,  salario_operador_mensal: 2000, active: true, productivity: 1      },
-  { id: uid(), name: "Caminhão Caçamba Truck",          category: "Caminhão",       consumption: 22, salario_operador_mensal: 2000, active: true, productivity: 14     },
+  { id: uid(), name: "Escavadeira 312 DL",              category: "Escavadeira",    consumption: 12, custo_h_manutencao: 34.50, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 96,    productivity: 96,    viagensPorHora: 0 },
+  { id: uid(), name: "Escavadeira 320DL",               category: "Escavadeira",    consumption: 17, custo_h_manutencao: 37.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 153.6, productivity: 153.6, viagensPorHora: 0 },
+  { id: uid(), name: "Escavadeira 336DL",               category: "Escavadeira",    consumption: 37, custo_h_manutencao: 48.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 240,   productivity: 240,   viagensPorHora: 0 },
+  { id: uid(), name: "Escavadeira 345 GC",              category: "Escavadeira",    consumption: 39, custo_h_manutencao: 53.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 288,   productivity: 288,   viagensPorHora: 0 },
+  { id: uid(), name: "Trator de Esteiras Leve",         category: "Trator",         consumption: 28, custo_h_manutencao: 43.50, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 393.6, productivity: 393.6  },
+  { id: uid(), name: "Trator de Esteiras Pesado",       category: "Trator",         consumption: 39, custo_h_manutencao: 43.50, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 320,   productivity: 320    },
+  { id: uid(), name: "Motoniveladora (Patrol)",         category: "Motoniveladora", consumption: 17, custo_h_manutencao: 39.00, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 2000,  productivity: 2000   },
+  { id: uid(), name: "Grade Agrícola",                  category: "Grade",          consumption: 15, custo_h_manutencao: 18.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1500,  productivity: 1500   },
+  { id: uid(), name: "Rolo Compactador Pé de Carneiro", category: "Compactador",    consumption: 15, custo_h_manutencao: 35.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 250,   productivity: 250    },
+  { id: uid(), name: "Caminhão Pipa",                   category: "Pipa",           consumption: 8,  custo_h_manutencao: 34.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1,     productivity: 1      },
+  { id: uid(), name: "Caminhão Caçamba Truck",          category: "Caminhão",       consumption: 22, custo_h_manutencao: 22.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 14,    productivity: 14     },
 ];
 
 // ══════════════════════════════════════════════════════════════════

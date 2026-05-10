@@ -1,14 +1,21 @@
-import React from "react";
+import React, { useState } from "react";
 import { Trash2, AlertTriangle, CheckCircle, TrendingUp, Target } from "lucide-react";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import { Row } from "../ui/Card";
 import EquipmentSelector from "./EquipmentSelector";
-import ComposicaoPreco from "./ComposicaoPreco";
+import PainelComposicaoItem from "./PainelComposicaoItem";
 import { calcItemCost } from "../../services/costEngine";
 import { fmt, fmtBRL, uid } from "../../utils/format";
 import S from "../../styles/tokens";
+
+const calcVolumeComEmpolamento = (volume, fator) => {
+  const v = parseFloat(volume) || 0;
+  const f = parseFloat(fator) || 0;
+  if (v <= 0 || f <= 0) return 0;
+  return f < 1 ? Math.max(v - (v * f), 0) : v * f;
+};
 
 // ── Estilos do Painel de Calibragem ──
 const calibrationStyles = {
@@ -112,11 +119,12 @@ export default function BudgetItem({
   equipmentOptions,
   serviceOptions,
   params,
+  volumeEmpoladoObra,
+  totalHorasProjeto,
   onUpdate,
   onDelete,
-  expanded,
-  onToggleExpanded,
 }) {
+  const [panelOpen, setPanelOpen] = useState(false);
   const result = calcItemCost(item, equipmentMap, params);
   const {
     custo_unitario,
@@ -136,6 +144,12 @@ export default function BudgetItem({
   const setField = (k, v) => onUpdate(index, k, v);
 
   const isVB = item.unit === "VB";
+  const fatorEmpolamentoPadrao = parseFloat(params?.fator_empolamento) || 1.36;
+  const volumeInSituItem = parseFloat(item.volumeInSitu) || parseFloat(item.quantity) || 0;
+  const fatorEmpolamentoItem = parseFloat(item.fatorEmpolamento) || fatorEmpolamentoPadrao;
+  const volumeEmpoladoItem = calcVolumeComEmpolamento(volumeInSituItem, fatorEmpolamentoItem);
+  const volumeInSituPorViagem = parseFloat(item.volumeInSituPorViagem) || 0;
+  const volumeEmpoladoPorViagem = calcVolumeComEmpolamento(volumeInSituPorViagem, fatorEmpolamentoItem);
 
   const hasCalculation =
     isVB
@@ -184,7 +198,7 @@ export default function BudgetItem({
             options={serviceOptions}
           />
           <Input
-            label="Quantidade"
+            label={isVB ? "Quantidade" : "Quantidade in situ"}
             value={item.quantity}
             onChange={v => setField("quantity", parseFloat(v) || 0)}
             type="number"
@@ -204,6 +218,40 @@ export default function BudgetItem({
             />
           )}
         </Row>
+
+        {!isVB && (
+          <Row>
+            <Input
+              label="Fator Empolamento"
+              value={item.fatorEmpolamento || fatorEmpolamentoItem}
+              onChange={v => setField("fatorEmpolamento", parseFloat(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+            <Input
+              label="Volume empolado (m³)"
+              value={volumeEmpoladoItem > 0 ? volumeEmpoladoItem.toFixed(2) : ""}
+              onChange={() => {}}
+              readOnly
+              placeholder="Quantidade in situ × fator"
+            />
+            <Input
+              label="Volume in situ por viagem"
+              value={item.volumeInSituPorViagem || ""}
+              onChange={v => setField("volumeInSituPorViagem", parseFloat(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+            <Input
+              label="Volume empolado por viagem"
+              value={volumeEmpoladoPorViagem > 0 ? volumeEmpoladoPorViagem.toFixed(2) : ""}
+              onChange={() => {}}
+              readOnly
+            />
+          </Row>
+        )}
 
         {!isVB && (
           <Row>
@@ -346,16 +394,20 @@ export default function BudgetItem({
 
             {!isVB && (
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <Button onClick={onToggleExpanded} variant="ghost" size="sm">
-                  🔍 {expanded ? "Ocultar composição" : "Ver composição de preço"}
+                <Button onClick={() => setPanelOpen(true)} variant="primary" size="sm">
+                  🔍 Abrir Painel de Composição
                 </Button>
               </div>
             )}
 
-            {!isVB && expanded && (
-              <>
-                <ComposicaoPreco detalhes={detalhes} unit={item.unit} />
-              </>
+            {!isVB && panelOpen && (
+              <PainelComposicaoItem
+                item={item}
+                result={result}
+                volumeEmpoladoObra={volumeEmpoladoObra}
+                totalHorasProjeto={totalHorasProjeto}
+                onClose={() => setPanelOpen(false)}
+              />
             )}
 
             {/* ══ PAINEL DE CALIBRAGEM RONMA ══ */}

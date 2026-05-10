@@ -5,12 +5,23 @@ import Input from "../components/ui/Input";
 import { Row, SectionTitle } from "../components/ui/Card";
 import { fmt, fmtBRL } from "../utils/format";
 import { MARKUP_PROFILES } from "../data/calibrationRanges";
+import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
 
 export default function Parametros({ params, setParams }) {
   const [local, setLocal] = useState({ ...params });
   const set  = (k, v) => setLocal(p => ({ ...p, [k]: parseFloat(v) || 0 }));
   const save = () => setParams(local);
+
+  // Helpers para editar tabelas (objetos chave→número)
+  const setMapValue = (mapKey, k, v) => setLocal(p => ({
+    ...p,
+    [mapKey]: { ...(p?.[mapKey] || {}), [k]: parseFloat(v) || 0 },
+  }));
+  const setMapNullable = (mapKey, k, v) => setLocal(p => ({
+    ...p,
+    [mapKey]: { ...(p?.[mapKey] || {}), [k]: (v === "" || v == null) ? null : parseFloat(v) || 0 },
+  }));
 
   // Preview do modelo de indireto (sem mock — calculado dos próprios campos)
   const indiretoTotalMensal =
@@ -31,8 +42,8 @@ export default function Parametros({ params, setParams }) {
         <SectionTitle>Combustível e Manutenção</SectionTitle>
         <Row>
           <Input label="Preço do Diesel (R$/L)"  value={local.dieselPrice}            onChange={v => set("dieselPrice", v)}            type="number" step="0.01" />
-          <Input label="Fator Manutenção (%)"    value={fmt((local.percentual_manutencao || 0.10) * 100)} onChange={v => set("percentual_manutencao", v / 100)} type="number" step="0.1" />
-          <Input label="Fator Indiretos legado (%)" value={fmt((local.percentual_indiretos || 0.10) * 100)}  onChange={v => set("percentual_indiretos", v / 100)}  type="number" step="0.01" />
+          <Input label="Fator Manutenção (%)"    value={fmt((local.percentual_manutencao || ASSUMPTIONS.manutencao.percentualSobreDiesel) * 100)} onChange={v => set("percentual_manutencao", v / 100)} type="number" step="0.1" />
+          <Input label="Fator Indiretos legado (%)" value={fmt((local.percentual_indiretos || ASSUMPTIONS.indireto.percentualLegadoSobreParcial) * 100)}  onChange={v => set("percentual_indiretos", v / 100)}  type="number" step="0.01" />
         </Row>
         <p style={{ fontSize: 12, color: S.muted, marginTop: 8 }}>
           O <b>Fator Indiretos legado</b> só é usado quando a estrutura absoluta abaixo está zerada. Quando configurada, o engine rateia o indireto pelo tempo real de obra e produtividade do serviço (sem multiplicar por equipamento).
@@ -91,7 +102,7 @@ export default function Parametros({ params, setParams }) {
         <Row>
           <Input
             label="Markup Padrão (×)"
-            value={local.markup_padrao || 1.66}
+            value={local.markup_padrao || ASSUMPTIONS.markup.padraoLegado}
             onChange={v => set("markup_padrao", v)}
             type="number"
             step="0.01"
@@ -103,7 +114,7 @@ export default function Parametros({ params, setParams }) {
         {/* Referência rápida de perfis */}
         <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
           {Object.entries(MARKUP_PROFILES).map(([key, profile]) => {
-            const isActive = Math.abs((local.markup_padrao || 1.66) - profile.valor) < 0.05;
+            const isActive = Math.abs((local.markup_padrao || ASSUMPTIONS.markup.padraoLegado) - profile.valor) < 0.05;
             return (
               <div
                 key={key}
@@ -131,6 +142,89 @@ export default function Parametros({ params, setParams }) {
           <Input label="BDI Padrão (%)"           value={local.defaultBDI}      onChange={v => set("defaultBDI", v)}      type="number" />
           <Input label="% Mão de Obra (faturamento)"    value={local.laborRatio}     onChange={v => set("laborRatio", v)}     type="number" />
           <Input label="% Equipamentos (faturamento)"   value={local.equipmentRatio} onChange={v => set("equipmentRatio", v)} type="number" />
+        </Row>
+      </div>
+
+      {/* ══ Tabela: R$/h por categoria de operador ══ */}
+      <div className="card" style={{ padding: 24 }}>
+        <SectionTitle>Mão de Obra Direta — R$/h por categoria de operador</SectionTitle>
+        <p style={{ fontSize: 13, color: S.muted, marginTop: 0, marginBottom: 12 }}>
+          Cada equipamento aponta uma <code style={{ color: S.accent2 }}>categoria_operador</code>;
+          o engine consulta esta tabela para obter o R$/h. Edite os valores diretamente.
+        </p>
+        <Row>
+          {Object.keys(local.categorias_operador || {})
+            .filter(k => !/^[A-Z]/.test(k))
+            .map(k => (
+              <Input
+                key={k}
+                label={k}
+                value={(local.categorias_operador || {})[k] ?? 0}
+                onChange={v => setMapValue("categorias_operador", k, v)}
+                type="number"
+                step="0.01"
+              />
+            ))}
+        </Row>
+      </div>
+
+      {/* ══ Tabela: Pessoas indiretas + alimentação dinâmica ══ */}
+      <div className="card" style={{ padding: 24 }}>
+        <SectionTitle>Pessoas Indiretas — R$/h por tipo</SectionTitle>
+        <p style={{ fontSize: 13, color: S.muted, marginTop: 0, marginBottom: 12 }}>
+          O <b>indireto rateado</b> usa estes valores. <code style={{ color: S.accent2 }}>alimentacao</code>{" "}
+          em branco aciona cálculo dinâmico baseado no tamanho da equipe.
+        </p>
+        <Row>
+          {Object.keys(local.pessoas_indiretas || {}).map(k => (
+            <Input
+              key={k}
+              label={k}
+              value={(local.pessoas_indiretas || {})[k] ?? ""}
+              onChange={v => setMapNullable("pessoas_indiretas", k, v)}
+              type="number"
+              step="0.01"
+              placeholder={k === "alimentacao" ? "vazio = dinâmico" : ""}
+            />
+          ))}
+        </Row>
+        <SectionTitle>Cálculo dinâmico de alimentação</SectionTitle>
+        <Row>
+          <Input label="Valor por pessoa/dia (R$)" value={local.alimentacao_valor_dia}  onChange={v => set("alimentacao_valor_dia", v)}  type="number" step="1" />
+          <Input label="Dias por mês"              value={local.alimentacao_dias_mes}   onChange={v => set("alimentacao_dias_mes", v)}   type="number" step="1" />
+          <Input label="Horas/mês de referência"   value={local.alimentacao_horas_ref}  onChange={v => set("alimentacao_horas_ref", v)}  type="number" step="1" />
+        </Row>
+      </div>
+
+      {/* ══ Tabela: Markup por categoria de equipamento ══ */}
+      <div className="card" style={{ padding: 24 }}>
+        <SectionTitle>Markup por Categoria de Equipamento</SectionTitle>
+        <p style={{ fontSize: 13, color: S.muted, marginTop: 0, marginBottom: 12 }}>
+          Substitui o <code>fatorBase × ajusteFinal</code> global. <code>_default</code> é o fallback
+          quando uma categoria não tem markup específico.
+        </p>
+        <Row>
+          {Object.keys(local.markup_por_categoria || {}).map(k => (
+            <Input
+              key={k}
+              label={k}
+              value={(local.markup_por_categoria || {})[k] ?? 0}
+              onChange={v => setMapValue("markup_por_categoria", k, v)}
+              type="number"
+              step="0.01"
+            />
+          ))}
+        </Row>
+      </div>
+
+      {/* ══ Defaults gerais editáveis ══ */}
+      <div className="card" style={{ padding: 24 }}>
+        <SectionTitle>Defaults do Orçamento (overrideáveis por obra)</SectionTitle>
+        <Row>
+          <Input label="Fator de empolamento (×)" value={local.fator_empolamento}      onChange={v => set("fator_empolamento", v)}      type="number" step="0.01" />
+          <Input label="Dias úteis/mês"           value={local.dias_uteis_mes}         onChange={v => set("dias_uteis_mes", v)}         type="number" step="1" />
+          <Input label="Horas/dia"                value={local.horas_dia}              onChange={v => set("horas_dia", v)}              type="number" step="0.5" />
+          <Input label="Alíquota imposto s/ lucro (0–1)" value={local.aliquota_imposto_lucro} onChange={v => set("aliquota_imposto_lucro", v)} type="number" step="0.0001" />
         </Row>
       </div>
 

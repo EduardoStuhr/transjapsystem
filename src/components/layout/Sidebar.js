@@ -1,5 +1,5 @@
 import React from "react";
-import { LayoutDashboard, Truck, Settings, FileText, Layers, HardHat } from "lucide-react";
+import { LayoutDashboard, Truck, Settings, FileText, Layers, HardHat, Shield, Printer, DollarSign } from "lucide-react";
 import S from "../../styles/tokens";
 import logo from "../../assets/logo.png";
 import "../../styles/components.css";
@@ -10,6 +10,9 @@ const NAV = [
   { id: "equipamentos", label: "Equipamentos", icon: Truck           },
   { id: "servicos",     label: "Serviços",     icon: Layers          },
   { id: "orcamentos",   label: "Orçamentos",   icon: FileText        },
+  { id: "composicao",   label: "Composição",   icon: DollarSign      },
+  { id: "validacoes",   label: "Validações",   icon: Shield          },
+  { id: "memoria",      label: "Memória",      icon: Printer         },
 ];
 
 export default function Sidebar({ page, setPage, quotations }) {

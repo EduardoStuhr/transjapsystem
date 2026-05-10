@@ -6,6 +6,8 @@
 // Ajustar: produtividade → eficiência → custo/h → markup
 // ══════════════════════════════════════════════════════════════════
 
+import { ASSUMPTIONS } from "../config/assumptions.config";
+
 export const CALIBRATION_RANGES = {
   Limpeza: {
     label: "Limpeza de Terreno",
@@ -63,7 +65,7 @@ export const CATEGORIAS_SEM_CALIBRAGEM = ["Preliminar", "Apoio"];
 // Perfis de markup profissional
 export const MARKUP_PROFILES = {
   minimo:      { valor: 1.10, label: "Mínimo (1.10×)",      desc: "Margem reduzida — risco alto" },
-  padrao:      { valor: 1.66, label: "Padrão (1.66×)",      desc: "Padrão profissional RONMA" },
+  padrao:      { valor: ASSUMPTIONS.markup.padraoLegado, label: `Padrão (${ASSUMPTIONS.markup.padraoLegado}×)`, desc: "Padrão profissional RONMA" },
   conservador: { valor: 1.80, label: "Conservador (1.80×)", desc: "Margem confortável — projetos de risco" },
   premium:     { valor: 2.20, label: "Premium (2.20×)",     desc: "Margem cheia — RONMA real (escavação)" },
 };
@@ -92,15 +94,17 @@ export const gerarCalibracao = (category, custoUnitario, precoUnitario, custoHor
     const isQualifyingUnit = ["m2", "m²", "m3", "m³", "M2", "M²", "M3", "M³"].includes(String(unit).trim());
     if (isQualifyingUnit && hasEquipment) {
       const baseCusto = refCost > 0 ? refCost : (custoUnitario > 0 ? custoUnitario : 10);
-      const basePreco = refPrice > 0 ? refPrice : (precoUnitario > 0 ? precoUnitario : baseCusto * 1.66);
-      
+      const basePreco = refPrice > 0 ? refPrice : (precoUnitario > 0 ? precoUnitario : baseCusto * ASSUMPTIONS.markup.padraoLegado);
+      const desvioCusto = ASSUMPTIONS.faixasCalibracao.desvioCustoPercentual;
+      const desvioPreco = ASSUMPTIONS.faixasCalibracao.desvioPrecoPercentual;
+
       range = {
         label: category || "Análise de Serviço",
         unidade: unit,
         produtividade: null,
-        eficiencia: { min: 0.80, max: 0.85 },
-        faixa_custo: { min: baseCusto * 0.85, max: baseCusto * 1.15 },
-        faixa_preco: { min: basePreco * 0.85, max: basePreco * 1.15 },
+        eficiencia: ASSUMPTIONS.faixasCalibracao.eficienciaPadrao,
+        faixa_custo: { min: baseCusto * (1 - desvioCusto), max: baseCusto * (1 + desvioCusto) },
+        faixa_preco: { min: basePreco * (1 - desvioPreco), max: basePreco * (1 + desvioPreco) },
         isGeneric: true,
       };
     }

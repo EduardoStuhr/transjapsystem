@@ -7,6 +7,9 @@ import Servicos from "./pages/Servicos";
 import ListaOrcamentos from "./pages/ListaOrcamentos";
 import NovoOrcamento from "./pages/NovoOrcamento";
 import VisualizarOrcamento from "./pages/VisualizarOrcamento";
+import Validacoes from "./pages/Validacoes";
+import MemoriaCalculo from "./pages/MemoriaCalculo";
+import PainelComposicao from "./pages/PainelComposicao";
 import PersistencePanel from "./components/PersistencePanel";
 import { useStore } from "./store";
 import { storageManager } from "./services/storage/storageManager";
@@ -66,6 +69,9 @@ export default function App() {
           onCancel={() => setPage("orcamentos")}
         />
       )}
+      {page === "composicao" && <PainelComposicao />}
+      {page === "validacoes" && <Validacoes />}
+      {page === "memoria"    && <MemoriaCalculo />}
       {viewQ && <VisualizarOrcamento q={viewQ} onClose={() => setViewQ(null)} />}
     </Layout>
   );

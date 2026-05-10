@@ -9,19 +9,28 @@ import { calcEquipmentHourlyCost } from "../services/costEngine";
 import { uid, fmtBRL } from "../utils/format";
 import S from "../styles/tokens";
 
-const CATEGORIES = ["Escavadeira", "Trator", "Motoniveladora", "Grade", "Compactador", "Caminhão", "Outro"];
+const CATEGORIES = ["Escavadeira", "Trator", "Motoniveladora", "Grade", "Compactador", "Caminhão", "Pipa", "Rolo", "Outro"];
+const CATEGORIAS_OPERADOR = ["", "operador_escavadeira", "operador_trator", "auxiliar"];
+const LABEL_CATEGORIA_OPERADOR = {
+  "": "— (usar legado por salário)",
+  operador_escavadeira:        "Operador Escavadeira",
+  operador_trator:             "Operador Trator / Patrol / Adm.",
+  auxiliar:                    "Auxiliar (grade / rolo / pipa)",
+};
 
 const EMPTY_EQ = {
   name: "", category: "Escavadeira", consumption: 0,
-  maintenanceCost: 0, operatorCost: 0, productivity: 0, active: true,
+  custo_h_manutencao: 0, categoria_operador: "", custo_h_operador: 0,
+  salario_operador_mensal: 0, baseProductivity: 0, productivity: 0, viagensPorHora: 0, active: true,
 };
 
 export default function Equipamentos({ equipment, setEquipment, params }) {
   const [modal, setModal] = useState(null);
   const [form,  setForm]  = useState(EMPTY_EQ);
 
+  const TEXT_FIELDS = new Set(["name", "category", "categoria_operador"]);
   const set = (k, v) =>
-    setForm(f => ({ ...f, [k]: k === "name" || k === "category" ? v : parseFloat(v) || 0 }));
+    setForm(f => ({ ...f, [k]: TEXT_FIELDS.has(k) ? v : parseFloat(v) || 0 }));
 
   const openNew  = () => { setForm({ ...EMPTY_EQ }); setModal("new"); };
   const openEdit = (eq) => { setForm({ ...eq }); setModal("edit"); };
@@ -43,10 +52,15 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
       </div>
 
       <div className="card" style={{ overflow: "hidden" }}>
+        <p style={{ fontSize: 12, color: S.muted, padding: "12px 16px 0", margin: 0 }}>
+          Esta tela mostra apenas <b>dados fixos</b> do equipamento. Indiretos e custos totais
+          dependem do orçamento (volume, prazo, equipe indireta) e são calculados em tempo real
+          dentro do orçamento.
+        </p>
         <table className="data-table">
           <thead>
             <tr>
-              {["Equipamento","Categoria","Consumo","C.Diesel/h","C.Manut/h","Operador/h","Indiretos/h","TOTAL/h","Produt.",""].map(h => (
+              {["Equipamento","Categoria","Consumo","C.Diesel/h","C.Manut/h","Operador/h","Custo DIRETO/h","Produt.","Viagens/h",""].map(h => (
                 <th key={h} style={{ textAlign: h === "" ? "center" : "left" }}>{h}</th>
               ))}
             </tr>
@@ -54,6 +68,8 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
           <tbody>
             {(equipment || []).map((eq, i) => {
               const c = calcEquipmentHourlyCost(eq, params, "1ª");
+              const direto = c.custo_direto_hora ?? (c.diesel_hora + c.manutencao_hora + c.operador_hora);
+              const prod = eq.baseProductivity ?? eq.productivity;
               return (
                 <tr key={eq.id} style={{ background: i % 2 === 0 ? "transparent" : "#ffffff05", opacity: eq.active ? 1 : 0.4 }}>
                   <td style={{ color: S.text, fontWeight: 600 }}>{eq.name}</td>
@@ -62,9 +78,9 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
                   <td style={{ color: "#fb923c" }}>{fmtBRL(c.diesel_hora)}</td>
                   <td style={{ color: S.muted }}>{fmtBRL(c.manutencao_hora)}</td>
                   <td style={{ color: S.muted }}>{fmtBRL(c.operador_hora)}</td>
-                  <td style={{ color: S.muted }}>{fmtBRL(c.indiretos_hora)}</td>
-                  <td><span style={{ color: S.accent, fontWeight: 800, fontSize: 14 }}>{fmtBRL(c.custo_total_hora)}</span></td>
-                  <td style={{ color: S.muted }}>{eq.productivity} u/h</td>
+                  <td><span style={{ color: S.accent, fontWeight: 800, fontSize: 14 }}>{fmtBRL(direto)}</span></td>
+                  <td style={{ color: S.muted }}>{prod} u/h</td>
+                  <td style={{ color: S.muted }}>{eq.viagensPorHora || "-"}</td>
                   <td>
                     <div style={{ display: "flex", gap: 6, justifyContent: "center" }}>
                       <Button onClick={() => toggle(eq.id)} variant="ghost" size="sm">{eq.active ? "🟢" : "⚫"}</Button>
@@ -88,24 +104,57 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
             </Row>
             <SectionTitle>Parâmetros de Custo (R$/h)</SectionTitle>
             <Row>
-              <Input label="Consumo Combustível (L/h)" value={form.consumption}    onChange={v => set("consumption", v)}    type="number" step="0.1" />
-              <Input label="Salário Operador (R$/mês)"     value={form.salario_operador_mensal}   onChange={v => set("salario_operador_mensal", v)}   type="number" step="0.01" />
+              <Input label="Consumo Combustível (L/h)" value={form.consumption}        onChange={v => set("consumption", v)}        type="number" step="0.1" />
+              <Input label="Manutenção (R$/h)"          value={form.custo_h_manutencao} onChange={v => set("custo_h_manutencao", v)} type="number" step="0.50" />
             </Row>
-            <Input label="Produtividade Base (unid/h)" value={form.productivity} onChange={v => set("productivity", v)} type="number" step="0.1" />
+            <Row>
+              <Select
+                label="Categoria do Operador"
+                value={form.categoria_operador || ""}
+                onChange={v => set("categoria_operador", v)}
+                options={CATEGORIAS_OPERADOR.map(c => ({ value: c, label: LABEL_CATEGORIA_OPERADOR[c] }))}
+              />
+              <Input label="Operador R$/h (override)"  value={form.custo_h_operador}        onChange={v => set("custo_h_operador", v)}        type="number" step="0.01" />
+              <Input label="Salário Operador (R$/mês — legado)" value={form.salario_operador_mensal} onChange={v => set("salario_operador_mensal", v)} type="number" step="0.01" />
+            </Row>
+            <Input
+              label="Produtividade Base (unid/h)"
+              value={form.baseProductivity || form.productivity || 0}
+              onChange={v => setForm(f => ({ ...f, baseProductivity: parseFloat(v) || 0, productivity: parseFloat(v) || 0 }))}
+              type="number"
+              step="0.1"
+            />
+            <Input
+              label="Viagens por hora (escavadeira)"
+              value={form.viagensPorHora || ""}
+              onChange={v => set("viagensPorHora", v)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Ex: 6"
+            />
+            <p style={{ fontSize: 12, color: S.muted, margin: 0 }}>
+              <b>Manutenção:</b> R$/h direto da planilha; vazio (0) cai para o cálculo legado (% do diesel).{" "}
+              <b>Operador:</b> R$/h direto vence; senão, usa a tabela por categoria; senão, usa salário × encargos / horas/mês.
+            </p>
 
             {form.consumption > 0 && (() => {
               const c = calcEquipmentHourlyCost({ ...form }, params, "1ª");
+              const direto = c.custo_direto_hora ?? (c.diesel_hora + c.manutencao_hora + c.operador_hora);
               return (
                 <div className="card2" style={{ padding: 16 }}>
-                  <SectionTitle>Custo Horário Calculado</SectionTitle>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8 }}>
-                    {[["Diesel", c.diesel_hora, "#fb923c"], ["Manutenção", c.manutencao_hora, S.muted], ["Operador", c.operador_hora, S.muted], ["Indiretos", c.indiretos_hora, S.muted], ["TOTAL", c.custo_total_hora, S.accent]].map(([l, v, col]) => (
+                  <SectionTitle>Custo Direto Horário (sem indireto)</SectionTitle>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                    {[["Diesel", c.diesel_hora, "#fb923c"], ["Manutenção", c.manutencao_hora, S.muted], ["Operador", c.operador_hora, S.muted], ["DIRETO/h", direto, S.accent]].map(([l, v, col]) => (
                       <div key={l} style={{ textAlign: "center" }}>
                         <div style={{ color: S.muted, fontSize: 10, marginBottom: 2 }}>{l}</div>
                         <div style={{ color: col, fontWeight: 700, fontSize: 13 }}>{fmtBRL(v)}</div>
                       </div>
                     ))}
                   </div>
+                  <p style={{ fontSize: 11, color: S.muted, marginTop: 8, marginBottom: 0 }}>
+                    Indireto não aparece aqui porque depende do orçamento (volume, prazo, equipe indireta).
+                  </p>
                 </div>
               );
             })()}

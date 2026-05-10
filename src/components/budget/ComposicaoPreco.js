@@ -427,10 +427,245 @@ function ResumoKPIs({ custoUnitario, precoUnitario, lucroUnitario, margem, unit,
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Painel de Variáveis do Orçamento (modelo novo) — derivadas visíveis
+// ──────────────────────────────────────────────────────────────────
+function PainelVariaveisOrcamento({ ctx, unit }) {
+  if (!ctx) return null;
+  const fmtMR = (v) => `${fmt(v, 2)} ${unit || "m³"}`;
+  return (
+    <div style={{ ...styles.block, ...styles.fullSpan }}>
+      <div style={styles.blockHeader}>
+        <div style={styles.blockTitle}>
+          <span style={styles.stepBadge}>1</span>
+          <span>Variáveis do Orçamento</span>
+        </div>
+        <div style={styles.blockHint}>derivadas em tempo real</div>
+      </div>
+      <div style={styles.blockBody}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
+          <KV label="Volume in situ" value={fmtMR(ctx.volumeInSitu)} hint="informado pelo usuário" />
+          <KV label="Fator empolamento" value={`${fmt(ctx.fatorEmpolamento, 3)}×`} hint="parâmetro" />
+          <KV label="Volume empolado" value={fmtMR(ctx.volumeEmpolado)}
+              hint={`= ${fmt(ctx.volumeInSitu, 2)} × ${fmt(ctx.fatorEmpolamento, 3)}`} accent />
+          <KV label="Prazo" value={`${fmt(ctx.prazoMeses, 0)} meses`} />
+          <KV label="Dias úteis / mês" value={`${fmt(ctx.diasUteisMes, 0)}`} />
+          <KV label="Horas / dia" value={`${fmt(ctx.horasDia, 0)} h`} />
+          <KV label="Horas projeto" value={`${fmt(ctx.horasProjeto, 0)} h`}
+              hint={`= ${fmt(ctx.diasUteisMes, 0)} × ${fmt(ctx.horasDia, 0)} × ${fmt(ctx.prazoMeses, 0)}`} />
+          <KV label="Produção conjunto" value={`${fmt(ctx.producaoConjuntoHora, 2)} ${unit || "m³"}/h`}
+              hint="Σ baseProductivity × qty (sem fatores)" />
+          <KV label="Horas-máquina" value={`${fmt(ctx.horasMaquinaNecessarias, 2)} h`}
+              hint={`= ${fmt(ctx.volumeInSitu, 2)} ÷ ${fmt(ctx.producaoConjuntoHora, 2)}`} accent />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KV({ label, value, hint, accent = false }) {
+  return (
+    <div style={{
+      padding: "10px 12px",
+      borderRadius: 8,
+      background: "rgba(0,0,0,0.20)",
+      border: `1px solid ${S.border}`,
+      display: "flex", flexDirection: "column", gap: 2,
+    }}>
+      <span style={{ fontSize: 10.5, color: S.muted, textTransform: "uppercase", letterSpacing: 0.4, fontWeight: 700 }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 14, fontWeight: 800, color: accent ? S.accent : S.text, fontVariantNumeric: "tabular-nums" }}>
+        {value}
+      </span>
+      {hint && <span style={{ fontSize: 10, color: S.muted, fontStyle: "italic" }}>{hint}</span>}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Card de Composição por Equipamento
+// ──────────────────────────────────────────────────────────────────
+function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
+  if (!eq) return null;
+  const baseLabel = (tipo) => tipo === "in_situ" ? "in situ" : "empolado";
+  const isPatrolDieselExcecao = eq.volume_ref_diesel_tipo === "in_situ";
+  const usaFallbackManut = !(eq.custoManutencaoDireto > 0);
+  const prodZero = !(eq.baseProductivity > 0);
+
+  return (
+    <div style={{ ...styles.block, gap: 10 }}>
+      <div style={styles.blockHeader}>
+        <div style={styles.blockTitle}>
+          <span style={{ ...styles.stepBadge, background: "rgba(245,158,11,0.18)", color: S.accent }}>⚙</span>
+          <span>{eq.equipamento}</span>
+          <span style={styles.badge("#94a3b8", "rgba(148,163,184,0.18)")}>{eq.categoria}</span>
+          <span style={{ ...styles.blockHint, marginLeft: 8 }}>qty: {fmt(eq.qty, 2)}</span>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {isPatrolDieselExcecao && (
+            <span style={styles.badge("#fbbf24", "rgba(245,158,11,0.18)")} title="Diesel rateado por m³ in situ por configuração de categoria">
+              diesel ÷ in situ
+            </span>
+          )}
+        </div>
+      </div>
+
+      {prodZero && (
+        <div style={alertBox("alerta")}>
+          ⚠️ Produtividade base zero — horas-máquina e diesel ficam zerados. Configure em Equipamentos.
+        </div>
+      )}
+
+      <div style={styles.blockBody}>
+        <div style={styles.subGroupTitle}>Parcelas em R$ totais (R$/h × horas × qty)</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Parcela</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>R$/h</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>Horas</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>Qty</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>Total R$</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style={styles.td}>⛽ Diesel</td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(eq.diesel_hora)}</td>
+                <td style={{ ...styles.td, textAlign: "right" }} title="horas-máquina">
+                  {fmt(eq.horas_diesel, 2)} <span style={{ color: S.muted }}>ⓜ</span>
+                </td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{fmt(eq.qty, 2)}</td>
+                <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_diesel)}</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>
+                  🔧 Manutenção {usaFallbackManut && (
+                    <span style={{ ...styles.badge("#fbbf24", "rgba(245,158,11,0.18)"), marginLeft: 6 }} title="Sem custo_h_manutencao cadastrado — usando fallback (% diesel)">
+                      ⚠ fallback
+                    </span>
+                  )}
+                </td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(eq.manutencao_hora)}</td>
+                <td style={{ ...styles.td, textAlign: "right" }} title="horas-projeto">
+                  {fmt(eq.horas_manutencao, 0)} <span style={{ color: S.muted }}>ⓟ</span>
+                </td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{fmt(eq.qty, 2)}</td>
+                <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_manutencao)}</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>👷 Mão de obra</td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(eq.operador_hora)}</td>
+                <td style={{ ...styles.td, textAlign: "right" }} title="horas-projeto">
+                  {fmt(eq.horas_mo, 0)} <span style={{ color: S.muted }}>ⓟ</span>
+                </td>
+                <td style={{ ...styles.td, textAlign: "right" }}>{fmt(eq.qty, 2)}</td>
+                <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_mo)}</td>
+              </tr>
+              <tr>
+                <td style={styles.td}>🏢 Indireto</td>
+                <td colSpan={3} style={{ ...styles.td, color: S.muted, fontStyle: "italic" }}>
+                  rateado por pessoas indiretas {semIndiretos ? "(nenhuma alocada)" : ""}
+                </td>
+                <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_indireto || 0)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ fontSize: 10.5, color: S.muted, marginTop: 2 }}>
+          ⓜ horas-máquina = volumeInSitu ÷ Σ produção base · ⓟ horas-projeto = dias × horas/dia × meses
+        </div>
+
+        <div style={styles.subGroupTitle}>Rateio em R$/{unit || "m³"}</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Parcela</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>Total R$</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>÷ Volume ref.</th>
+                <th style={styles.th}>Tipo</th>
+                <th style={{ ...styles.th, textAlign: "right" }}>R$/{unit || "m³"}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <RateioRow label="⛽ Diesel"      total={eq.total_diesel}     ref={eq.volume_ref_diesel}     tipo={baseLabel(eq.volume_ref_diesel_tipo)}     valor={eq.diesel_R$_m3} unit={unit} />
+              <RateioRow label="🔧 Manutenção"  total={eq.total_manutencao} ref={eq.volume_ref_manutencao} tipo={baseLabel(eq.volume_ref_manutencao_tipo)} valor={eq.manutencao_R$_m3} unit={unit} />
+              <RateioRow label="👷 Mão de obra" total={eq.total_mo}         ref={eq.volume_ref_mo}         tipo={baseLabel(eq.volume_ref_mo_tipo)}         valor={eq.mo_R$_m3} unit={unit} />
+              <RateioRow label="🏢 Indireto"    total={eq.total_indireto}   ref={eq.volume_ref_indireto}   tipo={baseLabel(eq.volume_ref_indireto_tipo)}   valor={eq.indireto_R$_m3} unit={unit} />
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{
+          marginTop: 8,
+          padding: 12,
+          borderRadius: 10,
+          background: "rgba(245,158,11,0.06)",
+          border: `1px solid rgba(245,158,11,0.25)`,
+          display: "grid",
+          gridTemplateColumns: "repeat(2, 1fr)",
+          gap: 10,
+        }}>
+          <KV label={`Custo unitário`} value={`${fmtBRL(eq.custo_R$_m3)}/${unit || "m³"}`} />
+          <KV label={`Markup (${eq.categoria})`} value={`${fmt(eq.markup, 2)}×`} />
+          <KV label={`Preço unitário`} value={`${fmtBRL(eq.preco_R$_m3)}/${unit || "m³"}`} accent />
+          <KV label="Total desta máquina na obra"
+              value={fmtBRL(eq.total_maquina_obra_R$)}
+              hint={`= ${fmtBRL(eq.preco_R$_m3)} × ${fmt(ctx?.volumeInSitu || 0, 2)} ${unit || "m³"} in situ`}
+              accent />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RateioRow({ label, total, ref, tipo, valor, unit }) {
+  return (
+    <tr>
+      <td style={styles.td}>{label}</td>
+      <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(total)}</td>
+      <td style={{ ...styles.td, textAlign: "right" }}>{fmt(ref, 2)} {unit || "m³"}</td>
+      <td style={styles.td}>
+        <span style={tipo === "in situ"
+          ? styles.badge("#fbbf24", "rgba(245,158,11,0.18)")
+          : styles.badge(S.accent2, "rgba(59,130,246,0.18)")}>
+          {tipo}
+        </span>
+      </td>
+      <td style={{ ...styles.td, textAlign: "right", fontWeight: 800, color: S.accent }}>
+        {fmtBRL(valor)}/{unit || "m³"}
+      </td>
+    </tr>
+  );
+}
+
+function alertBox(severidade) {
+  if (severidade === "erro") return {
+    padding: "8px 12px", borderRadius: 8,
+    background: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.30)",
+    color: "#fecaca", fontSize: 11.5,
+  };
+  if (severidade === "alerta") return {
+    padding: "8px 12px", borderRadius: 8,
+    background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.30)",
+    color: "#f59e0b", fontSize: 11.5,
+  };
+  return {
+    padding: "8px 12px", borderRadius: 8,
+    background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.30)",
+    color: "#93c5fd", fontSize: 11.5,
+  };
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Componente principal
 // ──────────────────────────────────────────────────────────────────
 export default function ComposicaoPreco({ detalhes, unit }) {
   const [showEqDetails, setShowEqDetails] = useState(false);
+  const [equipamentoSelecionado, setEquipamentoSelecionado] = useState("todos");
   if (!detalhes) return null;
 
   const a = detalhes.auditoria || {};
@@ -445,6 +680,22 @@ export default function ComposicaoPreco({ detalhes, unit }) {
   const validacoes = a.validacoes || [];
 
   const isBlocked = a.tipo === "bloqueado";
+
+  // Detecta modelo novo (calcItemCostNovo): equipamentos têm diesel_R$_m3 e contexto preenchido.
+  const ctx = a.contexto || null;
+  const usaModeloNovo = ctx != null && equipamentos.some((e) => e?.diesel_R$_m3 != null);
+
+  const equipamentosVisiveis = usaModeloNovo
+    ? (equipamentoSelecionado === "todos"
+        ? equipamentos
+        : equipamentos.filter((e) => (e.equipmentId || e.id) === equipamentoSelecionado))
+    : [];
+
+  const semEquipamentos = equipamentos.length === 0;
+  const volumeZero = (ctx?.volumeInSitu ?? 0) <= 0;
+  const semIndiretos = !validacoes.some((v) => v.severidade === "erro" && /indireta/i.test(v.mensagem || ""))
+    ? validacoes.some((v) => /indireta/i.test(v.mensagem || ""))
+    : false;
 
   // Resumo (Nível 1) — derivado de detalhes (sem alterar o engine)
   const precoUnitario = detalhes.resultado?.precoUnitario ?? 0;
@@ -587,7 +838,96 @@ export default function ComposicaoPreco({ detalhes, unit }) {
         isBlocked={isBlocked}
       />
 
-      {/* NÍVEL 2 — BLOCOS PRINCIPAIS */}
+      {/* MODELO NOVO — painel completo por equipamento */}
+      {usaModeloNovo && !isBlocked && (
+        <div style={styles.grid}>
+          {/* 1 — VARIÁVEIS DO ORÇAMENTO */}
+          <PainelVariaveisOrcamento ctx={ctx} unit={unit} />
+
+          {/* 2 — SELETOR DE EQUIPAMENTO */}
+          <div style={{ ...styles.block, ...styles.fullSpan }}>
+            <div style={styles.blockHeader}>
+              <div style={styles.blockTitle}>
+                <span style={styles.stepBadge}>2</span>
+                <span>Ver composição de</span>
+              </div>
+              <div style={styles.blockHint}>
+                {equipamentos.length} equipamento(s) alocado(s)
+              </div>
+            </div>
+            <div style={styles.blockBody}>
+              {semEquipamentos ? (
+                <div style={alertBox("info")}>
+                  ℹ️ Adicione equipamentos ao item para ver a composição.
+                </div>
+              ) : volumeZero ? (
+                <div style={alertBox("alerta")}>
+                  ⚠️ Informe um volume in situ maior que zero.
+                </div>
+              ) : (
+                <select
+                  value={equipamentoSelecionado}
+                  onChange={(e) => setEquipamentoSelecionado(e.target.value)}
+                  style={{
+                    background: "rgba(0,0,0,0.30)",
+                    color: S.text,
+                    border: `1px solid ${S.border}`,
+                    borderRadius: 8,
+                    padding: "8px 12px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    minWidth: 280,
+                  }}
+                >
+                  <option value="todos">Todos os equipamentos</option>
+                  {equipamentos.map((eq) => (
+                    <option key={eq.equipmentId || eq.id} value={eq.equipmentId || eq.id}>
+                      {eq.equipamento}{eq.qty !== 1 ? ` (×${fmt(eq.qty, 0)})` : ""} — {eq.categoria}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* 3 — CARDS DE COMPOSIÇÃO POR EQUIPAMENTO */}
+          {equipamentosVisiveis.map((eq) => (
+            <div key={eq.equipmentId || eq.id || eq.equipamento} style={styles.fullSpan}>
+              <div style={styles.blockHeader}>
+                <div style={styles.blockTitle}>
+                  <span style={styles.stepBadge}>3</span>
+                  <span>Composição por equipamento</span>
+                </div>
+              </div>
+              <CardComposicaoEquipamento eq={eq} ctx={ctx} unit={unit} semIndiretos={semIndiretos} />
+            </div>
+          ))}
+
+          {/* 4 — RESUMO DO ITEM */}
+          <div style={{ ...styles.block, ...styles.fullSpan }}>
+            <div style={styles.blockHeader}>
+              <div style={styles.blockTitle}>
+                <span style={styles.stepBadge}>4</span>
+                <span>Resumo do Item</span>
+              </div>
+              <div style={styles.blockHint}>Σ de todos os equipamentos</div>
+            </div>
+            <div style={styles.blockBody}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 10 }}>
+                <KV label={`Σ Custo unitário`} value={`${fmtBRL(custoUnitario)}/${unit}`} />
+                <KV label={`Σ Preço unitário`} value={`${fmtBRL(precoUnitario)}/${unit}`} accent />
+                <KV label="Markup efetivo" value={`${fmt(custoUnitario > 0 ? precoUnitario / custoUnitario : 0, 2)}×`} />
+                <KV label={`Volume do item`} value={`${fmt(quantidade, 2)} ${unit}`} />
+                <KV label="Total do item" value={fmtBRL(totalItem)} accent />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODELO LEGADO — manter visualização auditável original */}
+      {!usaModeloNovo && (
       <div style={styles.grid}>
         {/* BLOCO 1 — CUSTO BASE POR HORA (com sub-grupos) */}
         <Block
@@ -681,7 +1021,7 @@ export default function ComposicaoPreco({ detalhes, unit }) {
         <Block
           step={3}
           title="Conversão para custo unitário"
-          hint="custo hora ÷ produtividade real"
+          hint="componentes unitários por quantidade"
         >
           {conversao.map((row, i) => (
             <AuditRow key={i} row={row} dense />
@@ -756,6 +1096,7 @@ export default function ComposicaoPreco({ detalhes, unit }) {
           )}
         </Block>
       </div>
+      )}
     </div>
   );
 }

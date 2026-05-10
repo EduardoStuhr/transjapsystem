@@ -9,6 +9,8 @@ export default function Input({
   step,
   min,
   placeholder,
+  readOnly = false,
+  disabled = false,
   style: ext = {},
 }) {
   return (
@@ -21,6 +23,8 @@ export default function Input({
         step={step}
         min={min}
         placeholder={placeholder}
+        readOnly={readOnly}
+        disabled={disabled}
         className="field__input"
       />
     </div>

@@ -4,6 +4,7 @@ import Input from "../ui/Input";
 import { Row, SectionTitle } from "../ui/Card";
 import { fmt, fmtBRL } from "../../utils/format";
 import { MARKUP_PROFILES } from "../../data/calibrationRanges";
+import { ASSUMPTIONS } from "../../config/assumptions.config";
 import S from "../../styles/tokens";
 
 // ── Cores do Semáforo de Saúde ──
@@ -114,7 +115,7 @@ export default function BudgetSummary({ totals, bdi, adminPct, mobilPct, riskPct
       <div className="card" style={{ padding: 24 }}>
         <SectionTitle>Custos Indiretos e BDI Globais</SectionTitle>
         <p style={{ fontSize: 13, color: S.muted, marginBottom: 12 }}>
-          Estes percentuais são aplicados sobre o <strong>Preço Base de Venda</strong> (que já inclui markup de {fmt(totals.itemsCalc?.[0]?.markup_aplicado || 1.66)}× sobre cada item).
+          Estes percentuais são aplicados sobre o <strong>Preço Base de Venda</strong> (que já inclui markup de {fmt(totals.itemsCalc?.[0]?.markup_aplicado || ASSUMPTIONS.markup.padraoLegado)}× sobre cada item).
         </p>
         <Row>
           <Input label="Administração (%)"  value={adminPct} onChange={onChangeAdmin} type="number" step="0.1" />
