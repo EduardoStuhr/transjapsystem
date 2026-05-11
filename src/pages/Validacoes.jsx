@@ -71,6 +71,7 @@ const buildSnapshotFromQuotation = (q, params, equipment) => {
       adminPct: q.adminPct ?? 0,
       mobilPct: q.mobilPct ?? 0,
       riskPct:  q.riskPct  ?? 0,
+      indirectPersonnel: q.indirectPersonnel || [],
     }
   );
 
@@ -225,6 +226,7 @@ function ItemValidations({ quotation, params, equipment }) {
       adminPct: quotation.adminPct ?? 0,
       mobilPct: quotation.mobilPct ?? 0,
       riskPct:  quotation.riskPct  ?? 0,
+      indirectPersonnel: quotation.indirectPersonnel || [],
     }),
     [quotation, equipmentMap, params]
   );

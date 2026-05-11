@@ -38,6 +38,8 @@ export const ASSUMPTIONS = {
 
   // Pessoas indiretas — R$/h por tipo (espelha CUSTOS EQUIPAMENTOS!I17:I21).
   // alimentacao = null sinaliza cálculo dinâmico (depende do tamanho da equipe).
+  // NOTA: apontador e administrativo NÃO entram aqui — são mão de obra direta
+  // e ficam em `maoDeObraDireta.porCategoriaOperador` (auxiliar / operador_trator).
   pessoasIndiretas: {
     porTipo: {
       topografia:      88.8889,
@@ -45,8 +47,6 @@ export const ASSUMPTIONS = {
       alojamento:      46.1111,
       alimentacao:     null,
       vigilancia:     138.8889,
-      apontador:       21.0526,
-      administrativo:  24.7368,
     },
     alimentacao: {
       valorDia:   40,

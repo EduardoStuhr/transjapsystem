@@ -18,7 +18,26 @@ const mergeIfMissing = (target, defaults) => {
   return out;
 };
 
-const migrateParams = (stored) => mergeIfMissing(stored || {}, INITIAL_PARAMS);
+// Tipos de pessoa indireta que foram movidos para mão de obra direta —
+// devem ser silenciosamente removidos de cadastros antigos para não
+// inflar o divisor do rateio (cada um seria contado como pessoa).
+const TIPOS_INDIRETOS_DESCONTINUADOS = new Set(["apontador", "administrativo"]);
+
+const stripParamsLegado = (params) => {
+  if (!params || typeof params !== "object") return params;
+  const pi = params.pessoas_indiretas;
+  if (pi && typeof pi === "object") {
+    const filtrado = {};
+    for (const [k, v] of Object.entries(pi)) {
+      if (!TIPOS_INDIRETOS_DESCONTINUADOS.has(k)) filtrado[k] = v;
+    }
+    return { ...params, pessoas_indiretas: filtrado };
+  }
+  return params;
+};
+
+const migrateParams = (stored) =>
+  stripParamsLegado(mergeIfMissing(stored || {}, INITIAL_PARAMS));
 
 const migrateEquipment = (storedList) => (storedList || []).map(eq => ({
   custo_h_manutencao: null,
@@ -36,9 +55,20 @@ const stripDerivedVolumes = (item) => {
   return rest;
 };
 
+// Quotations antigos não tinham `indirectPersonnel` no nível do orçamento;
+// garante default vazio e remove tipos descontinuados se persistidos.
+const migrateIndirectPersonnel = (list) => {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((p) => p && typeof p === "object" && p.tipo)
+    .filter((p) => !TIPOS_INDIRETOS_DESCONTINUADOS.has(p.tipo))
+    .map((p) => ({ tipo: p.tipo, quantidade: Number(p.quantidade) || 0 }));
+};
+
 const migrateQuotations = (storedQuotations) =>
   (storedQuotations || []).map((q) => ({
     ...q,
+    indirectPersonnel: migrateIndirectPersonnel(q?.indirectPersonnel),
     items: Array.isArray(q?.items) ? q.items.map(stripDerivedVolumes) : (q?.items || []),
   }));
 

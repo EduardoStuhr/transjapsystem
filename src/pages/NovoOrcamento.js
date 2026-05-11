@@ -5,6 +5,7 @@ import Input from "../components/ui/Input";
 import { Row } from "../components/ui/Card";
 import BudgetItem from "../components/budget/BudgetItem";
 import BudgetSummary from "../components/budget/BudgetSummary";
+import PessoasIndiretas from "../components/budget/PessoasIndiretas";
 import { calcQuotationTotals } from "../services/costEngine";
 import { uid, today } from "../utils/format";
 import { ASSUMPTIONS } from "../config/assumptions.config";
@@ -58,6 +59,10 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
         }
   );
   const [items,    setItems]    = useState(editQuotation ? editQuotation.items : [emptyItem()]);
+  // Pessoas indiretas — nível do orçamento (uma única lista para todos os itens).
+  const [indirectPersonnel, setIndirectPersonnel] = useState(
+    Array.isArray(editQuotation?.indirectPersonnel) ? editQuotation.indirectPersonnel : []
+  );
   const [bdi,      setBdi]      = useState(editQuotation?.bdi      ?? params.defaultBDI);
   const [adminPct, setAdminPct] = useState(editQuotation?.adminPct ?? 3);
   const [mobilPct, setMobilPct] = useState(editQuotation?.mobilPct ?? 2);
@@ -162,8 +167,8 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   };
 
   const totals = useMemo(
-    () => calcQuotationTotals(items, eqMap, params, { bdi, adminPct, mobilPct, riskPct }),
-    [items, bdi, adminPct, mobilPct, riskPct, eqMap, params]
+    () => calcQuotationTotals(items, eqMap, params, { bdi, adminPct, mobilPct, riskPct, indirectPersonnel }),
+    [items, bdi, adminPct, mobilPct, riskPct, eqMap, params, indirectPersonnel]
   );
 
   const save = (status = "rascunho") => {
@@ -175,6 +180,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       ...meta,
       volumeEmpoladoObra: meta.volumeEmpoladoObra,
       totalHorasProjeto:  meta.totalHorasProjeto,
+      indirectPersonnel,
       items: totals.itemsCalc,
       bdi, adminPct, mobilPct, riskPct,
       subtotal:      totals.subtotal,
@@ -254,6 +260,14 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
             />
           </Row>
           <Input label="Observações" value={meta.notes} onChange={v => setMeta(m => ({ ...m, notes: v }))} />
+
+          <PessoasIndiretas
+            value={indirectPersonnel}
+            onChange={setIndirectPersonnel}
+            params={params}
+            items={items}
+          />
+
           <div style={{ marginTop: 8 }}>
             <Button onClick={() => setStep(2)} variant="primary">Próximo: Itens <ChevronRight size={14} /></Button>
           </div>
@@ -273,6 +287,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               equipmentOptions={eqOptions}
               serviceOptions={svcOptions}
               params={params}
+              indirectPersonnel={indirectPersonnel}
               volumeEmpoladoObra={meta.volumeEmpoladoObra}
               totalHorasProjeto={meta.totalHorasProjeto}
               onUpdate={updateItem}

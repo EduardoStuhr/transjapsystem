@@ -269,6 +269,7 @@ export default function PainelComposicao() {
       adminPct: quotation.adminPct ?? 0,
       mobilPct: quotation.mobilPct ?? 0,
       riskPct:  quotation.riskPct  ?? 0,
+      indirectPersonnel: quotation.indirectPersonnel || [],
     });
   }, [quotation, equipmentMap, params]);
 

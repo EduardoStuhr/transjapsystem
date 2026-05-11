@@ -119,13 +119,14 @@ export default function BudgetItem({
   equipmentOptions,
   serviceOptions,
   params,
+  indirectPersonnel = [],
   volumeEmpoladoObra,
   totalHorasProjeto,
   onUpdate,
   onDelete,
 }) {
   const [panelOpen, setPanelOpen] = useState(false);
-  const result = calcItemCost(item, equipmentMap, params);
+  const result = calcItemCost(item, equipmentMap, params, indirectPersonnel);
   const {
     custo_unitario,
     preco_unitario,
