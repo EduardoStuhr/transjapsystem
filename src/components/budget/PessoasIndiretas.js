@@ -3,7 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import S from "../../styles/tokens";
 import { fmt, fmtBRL } from "../../utils/format";
 import { ASSUMPTIONS } from "../../config/assumptions.config";
-import { calcIndiretoRateadoPorM3, roundIndiretoLineTotal } from "../../services/costEngine";
+import { calcIndiretoRateadoPorM3, calcNumOperadoresFrota, roundIndiretoLineTotal } from "../../services/costEngine";
 
 // ──────────────────────────────────────────────────────────────────
 // <PessoasIndiretas>
@@ -81,11 +81,8 @@ export default function PessoasIndiretas({ value = [], onChange, params, items =
   }, [items, params]);
 
   const numOperadoresFrota = useMemo(() => {
-    return items.reduce((s, it) => {
-      const lines = it?.equipmentLines || [];
-      return s + lines.reduce((q, l) => q + toNum(l?.quantity ?? l?.qty, 0), 0);
-    }, 0);
-  }, [items]);
+    return calcNumOperadoresFrota(items, params);
+  }, [items, params]);
 
   const numPessoasIndiretas = useMemo(
     () => value.reduce((s, p) => s + (toNum(p.quantidade, 0) > 0 ? toNum(p.quantidade, 0) : 0), 0),

@@ -25,6 +25,9 @@ export const ASSUMPTIONS = {
   // Usada quando o equipamento declara `categoria_operador` mas não custo_h_operador direto.
   // Chaves em snake_case são o padrão (modelo novo). As com espaço são aliases retro-compat.
   maoDeObraDireta: {
+    // Apontador + administrativo na planilha. Entram no total de pessoas
+    // para alimentacao dinamica, mas nao no divisor de pessoas indiretas.
+    pessoasFixasObra: 2,
     porCategoriaOperadorBase: {
       // Salario base sem encargos. O R$/h e derivado por salario * encargos / horas.
       // Estes valores reproduzem a planilha: 6200/190, 4700/190 e 4000/190.
@@ -70,6 +73,19 @@ export const ASSUMPTIONS = {
       diasMes:    30,
       horasRef:  180,
     },
+  },
+
+  // Categoria do item -> categorias de equipamento que definem as horas.
+  // Equipamentos fora da lista trabalham como auxiliares no mesmo periodo.
+  executoresPorCategoriaItem: {
+    "Escavacao":   ["Escavadeira"],
+    "Escavação":   ["Escavadeira"],
+    "Limpeza":     ["Escavadeira"],
+    "Transporte":  ["Caminhão", "Caminhao"],
+    "Aterro":      ["Compactador", "Rolo"],
+    "Acabamento":  ["Motoniveladora", "Grade"],
+    "Preliminar":  null,
+    "Apoio":       null,
   },
 
   // Markup por categoria de equipamento — espelha COMPOSIÇÃO DE PREÇO!H[r].

@@ -302,6 +302,16 @@ export default function Parametros({ params, setParams }) {
       {/* ══ Tabela: R$/h por categoria de operador ══ */}
       <div className="card" style={{ padding: 24 }}>
         <SectionTitle>Mão de Obra Direta — base de cálculo</SectionTitle>
+        <Row>
+          <Input
+            label="Pessoas diretas adicionais"
+            value={local.pessoas_diretas_adicionais ?? 0}
+            onChange={v => set("pessoas_diretas_adicionais", v)}
+            type="number"
+            step="1"
+            min="0"
+          />
+        </Row>
         {Object.keys(OPERADOR_LABEL).map((k) => {
           const base = local.mao_de_obra_direta_base?.[k]
             || ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase[k];

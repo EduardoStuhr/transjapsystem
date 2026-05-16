@@ -68,8 +68,8 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   const [mobilPct, setMobilPct] = useState(editQuotation?.mobilPct ?? 2);
   const [riskPct,  setRiskPct]  = useState(editQuotation?.riskPct  ?? 1);
   const numOperadoresFrotaOrcamento = useMemo(
-    () => calcNumOperadoresFrota(items),
-    [items],
+    () => calcNumOperadoresFrota(items, params),
+    [items, params],
   );
 
   // ── item field update + equipment line mutations ──
@@ -178,8 +178,9 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       riskPct,
       indirectPersonnel,
       totalHorasProjeto: meta.totalHorasProjeto,
+      volumeEmpoladoObra: meta.volumeEmpoladoObra,
     }),
-    [items, bdi, adminPct, mobilPct, riskPct, eqMap, params, indirectPersonnel, meta.totalHorasProjeto]
+    [items, bdi, adminPct, mobilPct, riskPct, eqMap, params, indirectPersonnel, meta.totalHorasProjeto, meta.volumeEmpoladoObra]
   );
 
   const save = (status = "rascunho") => {

@@ -129,6 +129,7 @@ export default function BudgetItem({
     {
       numOperadoresFrota: numOperadoresFrotaOrcamento,
       horasProjeto: totalHorasProjeto,
+      volumeEmpoladoObra,
     },
   );
   const {

@@ -614,7 +614,7 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
           <KV label={`Preço unitário`} value={`${fmtBRL(eq.preco_R$_m3)}/${unit || "m³"}`} accent />
           <KV label="Total desta máquina na obra"
               value={fmtBRL(eq.total_maquina_obra_R$)}
-              hint={`= ${fmtBRL(eq.preco_R$_m3)} × ${fmt(ctx?.volumeInSitu || 0, 2)} ${unit || "m³"} in situ`}
+              hint={`= ${fmtBRL(eq.preco_R$_m3)} × ${fmt(eq.volume_totalizacao ?? ctx?.volumeInSitu ?? 0, 2)} ${unit || "m³"} ${eq.volume_totalizacao_tipo === "auxiliar_in_situ" ? "auxiliar in situ" : "in situ"}`}
               accent />
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { INITIAL_PARAMS } from "../data/initialData";
-import { sanitizeEquipmentOperatorOverride, sanitizeTabelaRSh } from "../store";
+import { sanitizeEquipmentOperatorOverride, sanitizeTabelaRSh, useStore } from "../store";
 
 test("restaura storage com R$/h truncado em duas casas", () => {
   const operadores = sanitizeTabelaRSh(
@@ -42,4 +42,42 @@ test("mantem override direto intencional distante do default", () => {
   });
 
   expect(eq.custo_h_operador).toBe(45);
+});
+
+test("migra equipamento com manutencao zerada restaurando default por nome", () => {
+  const state = useStore.persist.getOptions().merge(
+    {
+      params: INITIAL_PARAMS,
+      equipment: [{
+        name: "Escavadeira 320DL",
+        custo_h_manutencao: 0,
+        categoria_operador: "operador_escavadeira",
+      }],
+      services: [],
+      quotations: [],
+    },
+    {},
+  );
+
+  expect(state.equipment[0].custo_h_manutencao).toBe(37);
+});
+
+test("migra rolo com consumo/manutencao antigos para valores da planilha", () => {
+  const state = useStore.persist.getOptions().merge(
+    {
+      params: INITIAL_PARAMS,
+      equipment: [{
+        name: "Rolo Compactador Pé de Carneiro",
+        consumption: 15,
+        custo_h_manutencao: 18,
+        categoria_operador: "auxiliar",
+      }],
+      services: [],
+      quotations: [],
+    },
+    {},
+  );
+
+  expect(state.equipment[0].consumption).toBe(28);
+  expect(state.equipment[0].custo_h_manutencao).toBe(35);
 });

@@ -310,6 +310,10 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
   const usaFallbackManut = !(eq.custoManutencaoDireto > 0);
   const prodZero = !(eq.baseProductivity > 0);
   const volumeInSitu = ctx.volumeInSitu ?? 0;
+  const volumeTotalizacao = eq.volume_totalizacao ?? volumeInSitu;
+  const volumeTotalizacaoLabel = eq.volume_totalizacao_tipo === "auxiliar_in_situ"
+    ? "auxiliar in situ"
+    : "in situ";
 
   return (
     <div
@@ -344,6 +348,11 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
         >
           · qty {fmt(eq.qty, 0)} · Categoria: <b style={{ color: SS.formulaText }}>{eq.categoria}</b>
         </span>
+        {eq.is_executor ? (
+          <Pill tone="success">EXECUTOR</Pill>
+        ) : (
+          <Pill tone="muted">AUXILIAR · herda horas dos executores</Pill>
+        )}
         {dieselExcecao && (
           <span style={pill(SS.warnBg, SS.warnText)} title="Diesel rateado por m³ in situ pela tabela volume_ref_diesel_por_categoria">
             diesel ÷ in situ
@@ -462,7 +471,7 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
           <KpiCell
             label="Total desta máquina na obra"
             valor={fmtBRL(eq.total_maquina_obra_R$)}
-            hint={`= ${fmtBRL(eq.preco_R$_m3)} × ${fmt(volumeInSitu, 2)} ${unit} in situ`}
+            hint={`= ${fmtBRL(eq.preco_R$_m3)} × ${fmt(volumeTotalizacao, 2)} ${unit} ${volumeTotalizacaoLabel}`}
             kind="ref"
             emphasize
           />
@@ -753,6 +762,8 @@ function Pill({ tone = "info", children }) {
   const map = {
     info: { bg: SS.infoBg, color: SS.infoText },
     warn: { bg: SS.warnBg, color: SS.warnText },
+    success: { bg: SS.okBg, color: SS.okText },
+    muted: { bg: SS.bgAlt, color: SS.mutedText },
     ok:   { bg: SS.okBg,   color: SS.okText   },
     err:  { bg: SS.errBg,  color: SS.errText  },
   };

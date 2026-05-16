@@ -23,6 +23,27 @@ const mergeIfMissing = (target, defaults) => {
 // devem ser silenciosamente removidos de cadastros antigos para não
 // inflar o divisor do rateio (cada um seria contado como pessoa).
 const TIPOS_INDIRETOS_DESCONTINUADOS = new Set(["apontador", "administrativo"]);
+const INITIAL_EQUIPMENT_POR_NOME = Object.fromEntries(
+  INITIAL_EQUIPMENT.map((eq) => [eq.name, eq])
+);
+
+const isRoloCompactador = (eq = {}) =>
+  `${eq.name || ""}`.toLowerCase().includes("rolo compactador");
+
+const shouldRestoreEquipmentDefault = (eq, defaults, field) => {
+  if (!defaults || defaults[field] == null) return false;
+  const value = Number(eq?.[field]);
+  if (!Number.isFinite(value) || value <= 0) return true;
+
+  // Valores conhecidos de cadastros antigos/inconsistentes que vinham da
+  // tabela errada e impediam bater a planilha Joao Checon.
+  if (isRoloCompactador(eq)) {
+    if (field === "consumption" && Math.abs(value - 15) < 1e-9) return true;
+    if (field === "custo_h_manutencao" && Math.abs(value - 18) < 1e-9) return true;
+  }
+
+  return false;
+};
 
 export const temPrecisaoBaixa = (v) => {
   if (typeof v !== "number" || !Number.isFinite(v)) return false;
@@ -104,15 +125,25 @@ const migrateParams = (stored) => {
   return merged;
 };
 
-const migrateEquipment = (storedList) => (storedList || []).map(eq =>
-  sanitizeEquipmentOperatorOverride({
-    custo_h_manutencao: null,
-    categoria_operador: null,
+const migrateEquipment = (storedList) => (storedList || []).map((eq) => {
+  const defaults = INITIAL_EQUIPMENT_POR_NOME[eq?.name] || {};
+  const consumo = shouldRestoreEquipmentDefault(eq, defaults, "consumption")
+    ? defaults.consumption ?? 0
+    : eq?.consumption;
+  const custoManutencao = shouldRestoreEquipmentDefault(eq, defaults, "custo_h_manutencao")
+    ? defaults.custo_h_manutencao ?? null
+    : eq?.custo_h_manutencao;
+  const merged = {
+    categoria_operador: defaults.categoria_operador ?? null,
     custo_h_operador:   0,
-    baseProductivity:   eq?.productivity ?? 0,
+    baseProductivity:   eq?.baseProductivity ?? eq?.productivity ?? defaults.baseProductivity ?? 0,
+    ...defaults,
     ...eq,
-  })
-);
+    consumption: consumo,
+    custo_h_manutencao: custoManutencao,
+  };
+  return sanitizeEquipmentOperatorOverride(merged);
+});
 
 // Limpa `volumeEmpolado` (e `volumeEmpoladoPorViagem`) gravado por versões
 // antigas como propriedade do item — agora é sempre derivado em tempo real.
@@ -260,7 +291,7 @@ export const useStore = create(
     }),
     {
       name: 'transjap-storage',
-      version: 6,
+      version: 9,
       partialize: (state) => ({
         params: state.params,
         equipment: state.equipment,
@@ -272,7 +303,7 @@ export const useStore = create(
       // markup_por_categoria, baseProductivity, etc.).
       migrate: (persistedState, version) => {
         const state = migrateState(persistedState);
-        if (version < 6 && state?.params) {
+        if (version < 9 && state?.params) {
           state.params.pessoas_indiretas = sanitizeTabelaRSh(
             state.params.pessoas_indiretas,
             INITIAL_PARAMS.pessoas_indiretas,

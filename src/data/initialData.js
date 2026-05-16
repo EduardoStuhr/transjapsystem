@@ -19,6 +19,7 @@ export const INITIAL_PARAMS = {
   categorias_operador:             { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperador },
   custo_hh_por_categoria_operador: { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperador },
   mao_de_obra_direta_base:         { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase },
+  pessoas_diretas_adicionais:      ASSUMPTIONS.maoDeObraDireta.pessoasFixasObra,
 
   // ── Pessoas indiretas: R$/h por tipo + cálculo dinâmico de alimentação ──
   pessoas_indiretas:        { ...ASSUMPTIONS.pessoasIndiretas.porTipo },
@@ -32,9 +33,8 @@ export const INITIAL_PARAMS = {
 
   // ── Volume de referência (denominador) por parcela e categoria ──
   // O custo R$/m³ de cada parcela divide o total R$ pelo volume aqui escolhido:
-  //   - Diesel: por categoria (Patrol é exceção e usa in_situ porque trabalha sobre
+  //   - Diesel/Manutenção/MO: por categoria (Patrol é exceção e usa in_situ porque trabalha sobre
   //             a área in situ, não sobre material remexido / empolado)
-  //   - Manutenção e MO: sempre empolado (espelha consumo real do equipamento)
   //   - Indireto: sempre in situ (rateio por volume entregue)
   volume_ref_diesel_por_categoria: {
     "Escavadeira":    "empolado",
@@ -46,6 +46,16 @@ export const INITIAL_PARAMS = {
     "Rolo":           "empolado",
     "Pipa":           "empolado",
     "Caminhão":       "empolado",
+    "_default":       "empolado",
+  },
+  volume_ref_manutencao_por_categoria: {
+    "Motoniveladora": "in_situ",
+    "Patrol":         "in_situ",
+    "_default":       "empolado",
+  },
+  volume_ref_mo_por_categoria: {
+    "Motoniveladora": "in_situ",
+    "Patrol":         "in_situ",
     "_default":       "empolado",
   },
   volume_ref_manutencao: "empolado",
@@ -105,7 +115,7 @@ export const INITIAL_EQUIPMENT = [
   { id: uid(), name: "Trator de Esteiras Pesado",       category: "Trator",         consumption: 39, custo_h_manutencao: 43.50, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 320,   productivity: 320    },
   { id: uid(), name: "Motoniveladora (Patrol)",         category: "Motoniveladora", consumption: 17, custo_h_manutencao: 39.00, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 2000,  productivity: 2000   },
   { id: uid(), name: "Grade Agrícola",                  category: "Grade",          consumption: 15, custo_h_manutencao: 18.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1500,  productivity: 1500   },
-  { id: uid(), name: "Rolo Compactador Pé de Carneiro", category: "Compactador",    consumption: 15, custo_h_manutencao: 35.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 250,   productivity: 250    },
+  { id: uid(), name: "Rolo Compactador Pé de Carneiro", category: "Compactador",    consumption: 28, custo_h_manutencao: 35.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 250,   productivity: 250    },
   { id: uid(), name: "Caminhão Pipa",                   category: "Pipa",           consumption: 8,  custo_h_manutencao: 34.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1,     productivity: 1      },
   { id: uid(), name: "Caminhão Caçamba Truck",          category: "Caminhão",       consumption: 22, custo_h_manutencao: 22.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 14,    productivity: 14     },
 ];

@@ -33,6 +33,49 @@ export const getMarkupPorCategoria = (params = {}, categoria) => {
   return toNum(tabela?.[categoria], fallback);
 };
 
+const resolveExecutorInfo = (item = {}, equipmentLines = [], equipmentMap = {}) => {
+  const mapaExecutores = ASSUMPTIONS.executoresPorCategoriaItem || {};
+  const temRegra = Object.prototype.hasOwnProperty.call(mapaExecutores, item?.category);
+  const categoriasExecutoras = temRegra ? mapaExecutores[item.category] : undefined;
+  const usaFrotaInteira = categoriasExecutoras == null || !Array.isArray(categoriasExecutoras);
+  const categoriasSet = Array.isArray(categoriasExecutoras)
+    ? new Set(categoriasExecutoras)
+    : null;
+
+  const matchCategoria = (eq) =>
+    usaFrotaInteira || categoriasSet.has(eq?.category);
+
+  const linhasExecutoras = usaFrotaInteira
+    ? equipmentLines
+    : equipmentLines.filter((l) => matchCategoria(equipmentMap[l.equipmentId]));
+
+  const fallbackFrotaInteira = usaFrotaInteira || linhasExecutoras.length === 0;
+  const linhasParaProducao = fallbackFrotaInteira ? equipmentLines : linhasExecutoras;
+
+  return {
+    categoriasExecutoras,
+    categoriasExecutorasAuditoria: fallbackFrotaInteira
+      ? "frota inteira (fallback)"
+      : categoriasExecutoras,
+    linhasExecutoras,
+    linhasParaProducao,
+    fallbackFrotaInteira,
+    isExecutor: (eq) => fallbackFrotaInteira || matchCategoria(eq),
+    numAuxiliares: equipmentLines.length - linhasParaProducao.length,
+  };
+};
+
+const mapEquipamentosExecutoresAuditoria = (linhasParaProducao = [], equipmentMap = {}) =>
+  linhasParaProducao.map((l) => {
+    const eq = equipmentMap[l.equipmentId];
+    return {
+      nome: eq?.name,
+      categoria: eq?.category,
+      produtividade: eq?.baseProductivity,
+      qty: toNum(l.quantity ?? l.qty, 0),
+    };
+  });
+
 const matchesCategoryName = (eq = {}, ...needles) => {
   const texto = `${eq.category || eq.categoria || ""} ${eq.name || eq.nome || eq.equipamento || ""}`.toLowerCase();
   return needles.some((n) => texto.includes(n));
@@ -91,13 +134,19 @@ const getVolumeRefDieselPorCategoria = (categoria, params, volumes) => {
   return { tipo, valor: getVolumeRefValor(tipo, volumes) };
 };
 
-const getVolumeRefManutencao = (params, volumes) => {
-  const tipo = resolveVolumeRefTipo(params?.volume_ref_manutencao ?? "empolado");
+const getVolumeRefManutencaoPorCategoria = (categoria, params, volumes) => {
+  const tabela = params?.volume_ref_manutencao_por_categoria || {};
+  const tipo = resolveVolumeRefTipo(
+    tabela?.[categoria] ?? tabela?._default ?? params?.volume_ref_manutencao ?? "empolado"
+  );
   return { tipo, valor: getVolumeRefValor(tipo, volumes) };
 };
 
-const getVolumeRefMO = (params, volumes) => {
-  const tipo = resolveVolumeRefTipo(params?.volume_ref_mo ?? "empolado");
+const getVolumeRefMOPorCategoria = (categoria, params, volumes) => {
+  const tabela = params?.volume_ref_mo_por_categoria || {};
+  const tipo = resolveVolumeRefTipo(
+    tabela?.[categoria] ?? tabela?._default ?? params?.volume_ref_mo ?? "empolado"
+  );
   return { tipo, valor: getVolumeRefValor(tipo, volumes) };
 };
 
@@ -106,17 +155,32 @@ const getVolumeRefIndireto = (params, volumes) => {
   return { tipo, valor: getVolumeRefValor(tipo, volumes) };
 };
 
+const getVolumeAuxiliarInSitu = (context = {}, fatorEmpolamento = 1) => {
+  const direto = toNum(context?.volumeAterroInSitu ?? context?.volumeAuxiliarInSitu, 0);
+  if (direto > 0) return direto;
+  const empolado = toNum(context?.volumeEmpoladoObra ?? context?.volumeAuxiliarEmpolado, 0);
+  return empolado > 0 && fatorEmpolamento > 0 ? empolado / fatorEmpolamento : 0;
+};
+
 const getViagensPorHora = (eq = {}) =>
   toNum(eq.viagensPorHora ?? eq.viagens_hora ?? eq.tripsPerHour ?? eq.capacidadeViagensHora, 0);
 
-export const calcNumOperadoresFrota = (items = []) =>
-  (Array.isArray(items) ? items : []).reduce((total, item) => {
+export const calcNumOperadoresFrota = (items = [], params = {}) => {
+  const operadoresEquipamentos = (Array.isArray(items) ? items : []).reduce((total, item) => {
     const linhas = Array.isArray(item?.equipmentLines) ? item.equipmentLines : [];
     return total + linhas.reduce(
       (s, line) => s + Math.max(toNum(line?.quantity ?? line?.qty, 0), 0),
       0,
     );
   }, 0);
+  const pessoasDiretasAdicionais = Math.max(
+    toNum(params?.pessoas_diretas_adicionais, ASSUMPTIONS.maoDeObraDireta.pessoasFixasObra),
+    0,
+  );
+  return operadoresEquipamentos > 0
+    ? operadoresEquipamentos + pessoasDiretasAdicionais
+    : 0;
+};
 
 const getHorasDiaItem = (item = {}, params = {}) =>
   toNum(item.horasDia, toNum(params?.horas_dia, toNum(params?.hoursPerDay, ASSUMPTIONS.jornada.horasPorDia)));
@@ -527,7 +591,9 @@ export const calcEquipmentHourlyCost = (eq, params, soilCategory, indiretoModel 
 };
 
 // ── Constrói a auditoria por linha de equipamento (com multiplicador de quantidade) ──
-const buildEquipamentosAuditoria = (item, equipmentMap, params, soil, indiretoModel) => {
+const buildEquipamentosAuditoria = (item, equipmentMap, params, soil, indiretoModel, executorInfo = null) => {
+  const infoExecutores = executorInfo
+    || resolveExecutorInfo(item, item.equipmentLines || [], equipmentMap);
   return (item.equipmentLines || []).map((line) => {
     const eq = equipmentMap[line.equipmentId];
     if (!eq) return null;
@@ -544,6 +610,7 @@ const buildEquipamentosAuditoria = (item, equipmentMap, params, soil, indiretoMo
       id: line.id,
       nome: eq.name,
       categoria: eq.category,
+      is_executor: infoExecutores.isExecutor(eq),
       quantidade: q,
       consumo: eq.consumption,
       viagensPorHora: getViagensPorHora(eq),
@@ -583,7 +650,18 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     l => toNum(l?.quantity ?? l?.qty, 0) > 0 && equipmentMap[l.equipmentId],
   );
 
-  const producaoConjuntoHora = equipmentLines.reduce((s, l) => {
+  // Equipamentos executores definem o tempo da obra; auxiliares herdam
+  // essas mesmas horas. Quando a categoria nao esta mapeada, mantem o
+  // comportamento antigo: frota inteira compoe a produtividade.
+  const executorInfo = resolveExecutorInfo(item, equipmentLines, equipmentMap);
+  const {
+    categoriasExecutorasAuditoria,
+    linhasParaProducao,
+    isExecutor,
+    numAuxiliares,
+  } = executorInfo;
+
+  const producaoConjuntoHora = linhasParaProducao.reduce((s, l) => {
     const eq = equipmentMap[l.equipmentId];
     const q  = toNum(l.quantity ?? l.qty, 0);
     const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
@@ -627,12 +705,13 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   let moR$M3_total       = 0;
   let indiretoR$M3_total = 0;
   const detalheEquipamentos = [];
+  let totalCustoEquipamentosObra = 0;
+  let totalPrecoEquipamentosObra = 0;
 
   // Denominadores por parcela (manut/MO/indireto são uniformes para todos
   // os equipamentos do item — diesel varia por categoria).
   const volumes = { volumeInSitu, volumeEmpolado };
-  const refManut    = getVolumeRefManutencao(params, volumes);
-  const refMO       = getVolumeRefMO(params, volumes);
+  const volumeAuxiliarInSitu = getVolumeAuxiliarInSitu(context, fatorEmpolamento);
   const refIndireto = getVolumeRefIndireto(params, volumes);
 
   for (const line of equipmentLines) {
@@ -646,6 +725,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     // O cálculo de ciclo (viagensPorHora) é preservado apenas como metadata
     // de auditoria — não substitui mais as horas canônicas.
     const refDiesel = getVolumeRefDieselPorCategoria(eq?.category, params, volumes);
+    const refManut  = getVolumeRefManutencaoPorCategoria(eq?.category, params, volumes);
+    const refMO     = getVolumeRefMOPorCategoria(eq?.category, params, volumes);
     const totalDieselEq = c.diesel_hora * horasMaquinaNecessarias * qty;
     const totalManutEq  = c.manutencao_hora * horasProjeto * qty;
     const totalMOEq     = c.operador_hora   * horasProjeto * qty;
@@ -667,7 +748,15 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 
     const markupEq = getMarkupPorCategoria(params, eq.category);
     const precoEqM3 = custoEqM3 * markupEq;
-    const totalMaquinaObra = precoEqM3 * volumeInSitu;
+    const executor = isExecutor(eq);
+    const volumeTotalizacao = !executor && volumeAuxiliarInSitu > 0
+      ? volumeAuxiliarInSitu
+      : volumeInSitu;
+    const volumeTotalizacaoTipo = !executor && volumeAuxiliarInSitu > 0
+      ? "auxiliar_in_situ"
+      : "in_situ";
+    const totalCustoMaquinaObra = custoEqM3 * volumeTotalizacao;
+    const totalMaquinaObra = precoEqM3 * volumeTotalizacao;
 
     custo_unitario     += custoEqM3;
     preco_unitario     += precoEqM3;
@@ -675,11 +764,14 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     manutR$M3_total    += manutEqM3;
     moR$M3_total       += moEqM3;
     indiretoR$M3_total += indiretoEqM3;
+    totalCustoEquipamentosObra += totalCustoMaquinaObra;
+    totalPrecoEquipamentosObra += totalMaquinaObra;
 
     detalheEquipamentos.push({
       equipmentId: line.equipmentId,
       equipamento: eq.name,
       categoria: eq.category,
+      is_executor: executor,
       qty,
       viagensPorHora: getViagensPorHora(eq),
       baseProductivity: toNum(eq?.baseProductivity ?? eq?.productivity, 0),
@@ -720,6 +812,9 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       custo_R$_m3:     custoEqM3,
       markup:          markupEq,
       preco_R$_m3:     precoEqM3,
+      volume_totalizacao: volumeTotalizacao,
+      volume_totalizacao_tipo: volumeTotalizacaoTipo,
+      total_custo_maquina_obra_R$: totalCustoMaquinaObra,
       total_maquina_obra_R$: totalMaquinaObra,
 
       // Compat retro (consumido por algumas telas)
@@ -731,7 +826,12 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 
   const markup_efetivo = custo_unitario > 0 ? preco_unitario / custo_unitario : 0;
   const quantidade     = toNum(item.quantity, volumeInSitu);
-  const total_item     = preco_unitario * quantidade;
+  const total_item     = totalPrecoEquipamentosObra > 0
+    ? totalPrecoEquipamentosObra
+    : preco_unitario * quantidade;
+  const total_custo_item = totalCustoEquipamentosObra > 0
+    ? totalCustoEquipamentosObra
+    : custo_unitario * quantidade;
   const lucro_unitario   = preco_unitario - custo_unitario;
   const margem_percentual = preco_unitario > 0 ? (lucro_unitario / preco_unitario) * 100 : 0;
 
@@ -749,6 +849,10 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       horasProjeto,
       producaoConjuntoHora,
       horasMaquinaNecessarias,
+      categoriasExecutoras: categoriasExecutorasAuditoria,
+      equipamentosExecutores: mapEquipamentosExecutoresAuditoria(linhasParaProducao, equipmentMap),
+      numAuxiliares,
+      volumeAuxiliarInSitu,
       numOperadoresFrota,
       indiretoR$M3PorPessoa,
       indiretoBreakdown,
@@ -778,7 +882,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   return {
     // contrato com a UI existente
     unitCost: custo_unitario,
-    totalCost: custo_unitario * quantidade,
+    totalCost: total_custo_item,
     totalPrice: total_item,
     custo_unitario,
     preco_unitario,
@@ -948,7 +1052,16 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
 
   // 2. Custos Horários (agregados a partir da auditoria por equipamento)
   const indiretoModel = calcIndiretoModel(params);
-  const equipamentosAuditoria = buildEquipamentosAuditoria(item, equipmentMap, params, soil, indiretoModel);
+  const equipmentLinesLegado = item.equipmentLines || [];
+  const executorInfoLegado = resolveExecutorInfo(item, equipmentLinesLegado, equipmentMap);
+  const equipamentosAuditoria = buildEquipamentosAuditoria(
+    item,
+    equipmentMap,
+    params,
+    soil,
+    indiretoModel,
+    executorInfoLegado,
+  );
   let sumDiesel = 0, sumManut = 0, sumOp = 0, sumIndiretoEq = 0, totalEquipDiretoHour = 0;
   equipamentosAuditoria.forEach((e) => {
     sumDiesel             += e.diesel.valorTotal;
@@ -1183,7 +1296,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
   // NÃO aplicar eficiência, fatorSolo nem fatorLogistica aqui — esses fatores
   // permanecem na auditoria como produtividade real informativa, mas não devem
   // contaminar o rateio de diesel/manutenção/MO em horas-máquina.
-  const producaoConjuntoBase = (item.equipmentLines || []).reduce((s, l) => {
+  const producaoConjuntoBase = executorInfoLegado.linhasParaProducao.reduce((s, l) => {
     const eq = equipmentMap[l.equipmentId];
     const q  = toNum(l?.quantity ?? l?.qty, 0);
     const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
@@ -1563,6 +1676,12 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
         // Σ (baseProductivity × qty) da frota — fonte real do rateio de horas-máquina.
         producaoConjuntoBase,
         horasMaquinaRateio,
+        categoriasExecutoras: executorInfoLegado.categoriasExecutorasAuditoria,
+        equipamentosExecutores: mapEquipamentosExecutoresAuditoria(
+          executorInfoLegado.linhasParaProducao,
+          equipmentMap,
+        ),
+        numAuxiliares: executorInfoLegado.numAuxiliares,
       },
       volumes: {
         inSitu: volumes.volumeInSitu,
@@ -1589,6 +1708,19 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
       auditoria: {
         tipo: "ok",
         unidade: unit,
+        contexto: {
+          volumeInSitu: volumes.volumeInSitu,
+          fatorEmpolamento: volumes.fatorEmpolamento,
+          volumeEmpolado: volumes.volumeEmpolado,
+          producaoConjuntoHora: producaoConjuntoBase,
+          horasMaquinaNecessarias: horasMaquinaRateio,
+          categoriasExecutoras: executorInfoLegado.categoriasExecutorasAuditoria,
+          equipamentosExecutores: mapEquipamentosExecutoresAuditoria(
+            executorInfoLegado.linhasParaProducao,
+            equipmentMap,
+          ),
+          numAuxiliares: executorInfoLegado.numAuxiliares,
+        },
         indiretoModel,
         validacoes,
         equipamentos: equipamentosAuditoria,
@@ -1613,18 +1745,23 @@ export const calcQuotationTotals = (
   items,
   equipmentMap,
   params,
-  { bdi, adminPct, mobilPct, riskPct, indirectPersonnel = [], totalHorasProjeto = 0 },
+  { bdi, adminPct, mobilPct, riskPct, indirectPersonnel = [], totalHorasProjeto = 0, volumeEmpoladoObra = 0, volumeAterroInSitu = 0 },
 ) => {
-  const numOperadoresFrota = calcNumOperadoresFrota(items);
+  const numOperadoresFrota = calcNumOperadoresFrota(items, params);
   const itemsCalc = items.map(it => ({
     ...it,
     ...calcItemCost(it, equipmentMap, params, indirectPersonnel, {
       numOperadoresFrota,
       horasProjeto: totalHorasProjeto,
+      volumeEmpoladoObra,
+      volumeAterroInSitu,
     }),
   }));
 
-  const subtotalCost  = itemsCalc.reduce((s, it) => s + (it.custo_unitario * (it.quantity || 1)), 0);
+  const subtotalCost  = itemsCalc.reduce(
+    (s, it) => s + toNum(it.totalCost, it.custo_unitario * (it.quantity || 1)),
+    0,
+  );
   const subtotalPrice = itemsCalc.reduce((s, it) => s + it.total_item, 0);
 
   const indirect   = subtotalPrice * ((adminPct + mobilPct + riskPct) / 100);
