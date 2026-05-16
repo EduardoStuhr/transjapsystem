@@ -4,6 +4,7 @@ import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import { Row, SectionTitle } from "../components/ui/Card";
 import { fmt, fmtBRL } from "../utils/format";
+import { normalizeFatorEmpolamento } from "../utils/empolamento";
 import { MARKUP_PROFILES } from "../data/calibrationRanges";
 import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
@@ -11,6 +12,13 @@ import S from "../styles/tokens";
 export default function Parametros({ params, setParams }) {
   const [local, setLocal] = useState({ ...params });
   const set  = (k, v) => setLocal(p => ({ ...p, [k]: parseFloat(v) || 0 }));
+  const setFatorEmpolamento = (v) => {
+    const parsed = parseFloat(v);
+    setLocal(p => ({
+      ...p,
+      fator_empolamento: Number.isFinite(parsed) ? normalizeFatorEmpolamento(parsed, 1.36) : 0,
+    }));
+  };
   const save = () => setParams(local);
 
   // Helpers para editar tabelas (objetos chave→número)
@@ -221,11 +229,14 @@ export default function Parametros({ params, setParams }) {
       <div className="card" style={{ padding: 24 }}>
         <SectionTitle>Defaults do Orçamento (overrideáveis por obra)</SectionTitle>
         <Row>
-          <Input label="Fator de empolamento (×)" value={local.fator_empolamento}      onChange={v => set("fator_empolamento", v)}      type="number" step="0.01" />
+          <Input label="Fator de empolamento (×)" value={local.fator_empolamento}      onChange={setFatorEmpolamento}      type="number" step="0.01" min="1" />
           <Input label="Dias úteis/mês"           value={local.dias_uteis_mes}         onChange={v => set("dias_uteis_mes", v)}         type="number" step="1" />
           <Input label="Horas/dia"                value={local.horas_dia}              onChange={v => set("horas_dia", v)}              type="number" step="0.5" />
           <Input label="Alíquota imposto s/ lucro (0–1)" value={local.aliquota_imposto_lucro} onChange={v => set("aliquota_imposto_lucro", v)} type="number" step="0.0001" />
         </Row>
+        <p style={{ fontSize: 12, color: S.muted, marginTop: 8 }}>
+          Empolamento e multiplicador: 1,36 representa +36%. Valores entre 0 e 1 sao convertidos para 1 + valor.
+        </p>
       </div>
 
       <div className="card" style={{ padding: 24 }}>

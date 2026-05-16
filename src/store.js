@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { INITIAL_PARAMS, INITIAL_EQUIPMENT, INITIAL_SERVICES } from './data/initialData';
 import { CALIBRATION_RANGES, CATEGORIAS_SEM_CALIBRAGEM } from './data/calibrationRanges';
 import { ASSUMPTIONS } from './config/assumptions.config';
+import { normalizeFatorEmpolamento } from './utils/empolamento';
 
 // ── Migrações dos dados persistidos ──
 // Cadastros salvos antes da refatoração não têm os novos campos.
@@ -25,15 +26,19 @@ const TIPOS_INDIRETOS_DESCONTINUADOS = new Set(["apontador", "administrativo"]);
 
 const stripParamsLegado = (params) => {
   if (!params || typeof params !== "object") return params;
+  const fatorEmpolamento = normalizeFatorEmpolamento(
+    params.fator_empolamento,
+    1 + ASSUMPTIONS.empolamento.fatorPadrao
+  );
   const pi = params.pessoas_indiretas;
   if (pi && typeof pi === "object") {
     const filtrado = {};
     for (const [k, v] of Object.entries(pi)) {
       if (!TIPOS_INDIRETOS_DESCONTINUADOS.has(k)) filtrado[k] = v;
     }
-    return { ...params, pessoas_indiretas: filtrado };
+    return { ...params, fator_empolamento: fatorEmpolamento, pessoas_indiretas: filtrado };
   }
-  return params;
+  return { ...params, fator_empolamento: fatorEmpolamento };
 };
 
 const migrateParams = (stored) =>
@@ -52,6 +57,9 @@ const migrateEquipment = (storedList) => (storedList || []).map(eq => ({
 const stripDerivedVolumes = (item) => {
   if (!item || typeof item !== "object") return item;
   const { volumeEmpolado, volumeEmpoladoPorViagem, ...rest } = item;
+  if (rest.fatorEmpolamento !== null && rest.fatorEmpolamento !== undefined && rest.fatorEmpolamento !== "") {
+    rest.fatorEmpolamento = normalizeFatorEmpolamento(rest.fatorEmpolamento, 1 + ASSUMPTIONS.empolamento.fatorPadrao);
+  }
   return rest;
 };
 

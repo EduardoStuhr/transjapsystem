@@ -7,15 +7,9 @@ import { Row } from "../ui/Card";
 import EquipmentSelector from "./EquipmentSelector";
 import PainelComposicaoItem from "./PainelComposicaoItem";
 import { calcItemCost } from "../../services/costEngine";
+import { calcVolumeComEmpolamento, normalizeFatorEmpolamento, resolveFatorEmpolamento } from "../../utils/empolamento";
 import { fmt, fmtBRL, uid } from "../../utils/format";
 import S from "../../styles/tokens";
-
-const calcVolumeComEmpolamento = (volume, fator) => {
-  const v = parseFloat(volume) || 0;
-  const f = parseFloat(fator) || 0;
-  if (v <= 0 || f <= 0) return 0;
-  return f < 1 ? Math.max(v - (v * f), 0) : v * f;
-};
 
 // ── Estilos do Painel de Calibragem ──
 const calibrationStyles = {
@@ -145,12 +139,17 @@ export default function BudgetItem({
   const setField = (k, v) => onUpdate(index, k, v);
 
   const isVB = item.unit === "VB";
-  const fatorEmpolamentoPadrao = parseFloat(params?.fator_empolamento) || 1.36;
+  const fatorEmpolamentoPadrao = normalizeFatorEmpolamento(params?.fator_empolamento, 1.36);
   const volumeInSituItem = parseFloat(item.volumeInSitu) || parseFloat(item.quantity) || 0;
-  const fatorEmpolamentoItem = parseFloat(item.fatorEmpolamento) || fatorEmpolamentoPadrao;
+  const fatorEmpolamentoInfo = resolveFatorEmpolamento(item.fatorEmpolamento || fatorEmpolamentoPadrao, fatorEmpolamentoPadrao);
+  const fatorEmpolamentoItem = fatorEmpolamentoInfo.value;
   const volumeEmpoladoItem = calcVolumeComEmpolamento(volumeInSituItem, fatorEmpolamentoItem);
   const volumeInSituPorViagem = parseFloat(item.volumeInSituPorViagem) || 0;
   const volumeEmpoladoPorViagem = calcVolumeComEmpolamento(volumeInSituPorViagem, fatorEmpolamentoItem);
+  const setFatorEmpolamento = (value) => {
+    const parsed = parseFloat(value);
+    setField("fatorEmpolamento", Number.isFinite(parsed) ? normalizeFatorEmpolamento(parsed, fatorEmpolamentoPadrao) : 0);
+  };
 
   const hasCalculation =
     isVB
@@ -225,11 +224,16 @@ export default function BudgetItem({
             <Input
               label="Fator Empolamento"
               value={item.fatorEmpolamento || fatorEmpolamentoItem}
-              onChange={v => setField("fatorEmpolamento", parseFloat(v) || 0)}
+              onChange={setFatorEmpolamento}
               type="number"
               step="0.01"
-              min="0"
+              min="1"
             />
+            <div style={{ fontSize: 11, color: fatorEmpolamentoInfo.status === "converted" ? "#f59e0b" : S.muted, alignSelf: "end", paddingBottom: 4 }}>
+              {fatorEmpolamentoInfo.status === "converted"
+                ? `${fmt(fatorEmpolamentoInfo.raw, 2)} convertido para ${fmt(fatorEmpolamentoItem, 2)}x.`
+                : "Use multiplicador: 1,36 = +36%."}
+            </div>
             <Input
               label="Volume empolado (m³)"
               value={volumeEmpoladoItem > 0 ? volumeEmpoladoItem.toFixed(2) : ""}

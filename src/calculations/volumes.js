@@ -6,6 +6,7 @@
 // ══════════════════════════════════════════════════════════════════
 
 import { ASSUMPTIONS } from "../config/assumptions.config";
+import { normalizeFatorEmpolamento } from "../utils/empolamento";
 
 const toNum = (v, fallback = 0) => {
   if (v === null || v === undefined || v === "") return fallback;
@@ -23,11 +24,11 @@ const toDate = (v) => {
 };
 
 // ── A1. Volume empolado ──────────────────────────────────────────
-// Convenção: fator é ACRÉSCIMO. fatorEmpolamento=0.36 → ×1.36.
+// Convencao unica: fator e MULTIPLICADOR. fatorEmpolamento=1.36 => +36%.
 export const calcVolumeEmpolado = (volumeInSitu, fatorEmpolamento) => {
   const v = toNum(volumeInSitu, 0);
-  const f = toNum(fatorEmpolamento, ASSUMPTIONS.empolamento.fatorPadrao);
-  return v * (1 + f);
+  const f = normalizeFatorEmpolamento(fatorEmpolamento, 1 + ASSUMPTIONS.empolamento.fatorPadrao);
+  return v * f;
 };
 
 // ── A2. Bota-fora (calculado a partir de escavação − aterro) ─────
@@ -113,9 +114,9 @@ export const calcPrazoEHoras = ({
 // Recebe ContractData e devolve TODOS os valores derivados de Bloco A
 // + uma tabela de auditoria (id, label, valor, unidade, fórmula, fórmulaExec).
 export const computeBlocoA = (contract) => {
-  const fatorEmpolamento = toNum(
+  const fatorEmpolamento = normalizeFatorEmpolamento(
     contract?.fatorEmpolamento,
-    ASSUMPTIONS.empolamento.fatorPadrao
+    1 + ASSUMPTIONS.empolamento.fatorPadrao
   );
 
   const volumeEscavacaoTotal = toNum(contract?.volumeEscavacaoTotal, 0);
@@ -146,16 +147,16 @@ export const computeBlocoA = (contract) => {
       label: "Volume escavação empolado",
       valor: volumeEscavacaoEmpolado,
       unidade: "m³",
-      formula: "volumeEscavacaoTotal × (1 + fatorEmpolamento)",
-      formulaExec: `${volumeEscavacaoTotal} × (1 + ${fatorEmpolamento}) = ${volumeEscavacaoEmpolado.toFixed(2)}`,
+      formula: "volumeEscavacaoTotal × fatorEmpolamento",
+      formulaExec: `${volumeEscavacaoTotal} × ${fatorEmpolamento} = ${volumeEscavacaoEmpolado.toFixed(2)}`,
     },
     {
       id: "A1.aterro_empolado",
       label: "Volume aterro empolado",
       valor: volumeAterroEmpolado,
       unidade: "m³",
-      formula: "volumeAterro × (1 + fatorEmpolamento)",
-      formulaExec: `${volumeAterro} × (1 + ${fatorEmpolamento}) = ${volumeAterroEmpolado.toFixed(2)}`,
+      formula: "volumeAterro × fatorEmpolamento",
+      formulaExec: `${volumeAterro} × ${fatorEmpolamento} = ${volumeAterroEmpolado.toFixed(2)}`,
     },
     {
       id: "A2.bota_fora_in_situ",
@@ -170,8 +171,8 @@ export const computeBlocoA = (contract) => {
       label: "Bota-fora (empolado)",
       valor: botaFora.empolado,
       unidade: "m³",
-      formula: "bota_fora_in_situ × (1 + fatorEmpolamento)",
-      formulaExec: `${botaFora.inSitu.toFixed(2)} × (1 + ${fatorEmpolamento}) = ${botaFora.empolado.toFixed(2)}`,
+      formula: "bota_fora_in_situ × fatorEmpolamento",
+      formulaExec: `${botaFora.inSitu.toFixed(2)} × ${fatorEmpolamento} = ${botaFora.empolado.toFixed(2)}`,
     },
     {
       id: "A3.limpeza_volume",

@@ -14,12 +14,23 @@
 
 import { gerarCalibracao, CALIBRATION_RANGES } from "../data/calibrationRanges";
 import { fmt, fmtBRL } from "../utils/format";
+import { calcVolumeComEmpolamento, normalizeFatorEmpolamento } from "../utils/empolamento";
 import { ASSUMPTIONS, getFatorSolo } from "../config/assumptions.config";
 
 const safePct = (val) => (val > 1 ? val / 100 : val);
 const toNum = (v, fallback = 0) => {
   const n = typeof v === "string" ? parseFloat(v.replace(",", ".")) : parseFloat(v);
   return Number.isFinite(n) ? n : fallback;
+};
+
+export const getMarkupPorCategoria = (params = {}, categoria) => {
+  const tabela = params?.markup_por_categoria || ASSUMPTIONS.markupPorCategoria;
+  const defaultAssumption = toNum(
+    ASSUMPTIONS.markupPorCategoria?._default,
+    ASSUMPTIONS.markup.fatorBase * ASSUMPTIONS.markup.ajusteFinal
+  );
+  const fallback = toNum(tabela?._default, defaultAssumption);
+  return toNum(tabela?.[categoria], fallback);
 };
 
 const matchesCategoryName = (eq = {}, ...needles) => {
@@ -49,18 +60,14 @@ const usaDenominadorEmpolado = (eq) =>
 // O fator é sempre tratado como MULTIPLICADOR (1,36 → +36 %). Compat com
 // versões antigas que tratavam f<1 como "perda" foi removida porque ela
 // gerava drift silencioso quando o usuário digitava 0,36 esperando acréscimo.
-const calcVolumeComEmpolamento = (volume, fatorEmpolamento) => {
-  const v = toNum(volume, 0);
-  const f = toNum(fatorEmpolamento, 0);
-  if (v <= 0 || f <= 0) return 0;
-  return v * f;
-};
-
 const getItemVolumes = (item = {}, params = {}) => {
   const volumeInSitu = toNum(item.volumeInSitu, toNum(item.quantity, 0));
-  const fatorPadrao = toNum(params?.fator_empolamento, 1 + ASSUMPTIONS.empolamento.fatorPadrao);
-  const fatorInformado = toNum(item.fatorEmpolamento, 0);
-  const fatorEmpolamento = fatorInformado > 0 ? fatorInformado : fatorPadrao;
+  const fatorPadrao = normalizeFatorEmpolamento(params?.fator_empolamento, 1 + ASSUMPTIONS.empolamento.fatorPadrao);
+  const fatorInformado = item.fatorEmpolamento;
+  const fatorEmpolamento =
+    fatorInformado !== null && fatorInformado !== undefined && fatorInformado !== ""
+      ? normalizeFatorEmpolamento(fatorInformado, fatorPadrao)
+      : fatorPadrao;
   const volumeEmpolado = calcVolumeComEmpolamento(volumeInSitu, fatorEmpolamento);
   return { volumeInSitu, fatorEmpolamento, volumeEmpolado };
 };
@@ -601,9 +608,6 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = []) =>
   let moR$M3_total       = 0;
   let indiretoR$M3_total = 0;
   const detalheEquipamentos = [];
-  const markupTabela = params?.markup_por_categoria
-    || ASSUMPTIONS.markupPorCategoria;
-  const markupDefault = toNum(markupTabela?._default, 2.37);
 
   // Denominadores por parcela (manut/MO/indireto são uniformes para todos
   // os equipamentos do item — diesel varia por categoria).
@@ -642,7 +646,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = []) =>
     const indiretoEqM3 = refIndireto.valor > 0 ? totalIndiretoEq / refIndireto.valor : 0;
     const custoEqM3    = dieselEqM3 + manutEqM3 + moEqM3 + indiretoEqM3;
 
-    const markupEq = toNum(markupTabela?.[eq.category], markupDefault);
+    const markupEq = getMarkupPorCategoria(params, eq.category);
     const precoEqM3 = custoEqM3 * markupEq;
     const totalMaquinaObra = precoEqM3 * volumeInSitu;
 
@@ -1187,16 +1191,61 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [])
   });
 
   const dieselCalculos = equipamentosAuditoria.map(dieselPorEquipamento);
-  const decompUnitDiesel = dieselCalculos.reduce((s, c) => s + c.valorUnitario, 0);
-  const decompUnitManut  = equipamentosAuditoria.reduce((s, e) => s + rateiaEquipamento(e, e.manutencao), 0);
-  const decompUnitOp     = equipamentosAuditoria.reduce((s, e) => s + rateiaEquipamento(e, e.operador), 0);
-  const decompUnitIndir  = indiretoModel.modo === "absoluto"
-    ? (volumes.volumeInSitu > 0 ? (sumIndireto * horasMaquinaRateio) / volumes.volumeInSitu : 0)
-    : equipamentosAuditoria.reduce((s, e) => s + rateiaEquipamento(e, e.indiretos), 0);
+  const decompUnitIndirAbsoluto = volumes.volumeInSitu > 0
+    ? (sumIndireto * horasMaquinaRateio) / volumes.volumeInSitu
+    : 0;
+  const baseIndiretoPorEquipamento = equipamentosAuditoria.map((e, index) =>
+    toNum(dieselCalculos[index]?.valorUnitario, 0)
+    + rateiaEquipamento(e, e.manutencao)
+    + rateiaEquipamento(e, e.operador)
+  );
+  const baseIndiretoTotal = baseIndiretoPorEquipamento.reduce((s, v) => s + v, 0);
+  const equipamentosDecomp = equipamentosAuditoria.map((e, index) => {
+    const diesel = toNum(dieselCalculos[index]?.valorUnitario, 0);
+    const manutencao = rateiaEquipamento(e, e.manutencao);
+    const maoDeObra = rateiaEquipamento(e, e.operador);
+    const indiretos = indiretoModel.modo === "absoluto"
+      ? (baseIndiretoTotal > 0
+        ? decompUnitIndirAbsoluto * (baseIndiretoPorEquipamento[index] / baseIndiretoTotal)
+        : (index === 0 ? decompUnitIndirAbsoluto : 0))
+      : rateiaEquipamento(e, e.indiretos);
+    const custo = diesel + manutencao + maoDeObra + indiretos;
+    const markupCategoria = getMarkupPorCategoria(params, e.categoria);
+    return {
+      equipamento: e.nome,
+      categoria: e.categoria,
+      diesel,
+      manutencao,
+      maoDeObra,
+      indiretos,
+      custo,
+      markup: markupCategoria,
+      preco: custo * markupCategoria,
+    };
+  });
+  const decompUnitDiesel = equipamentosDecomp.reduce((s, e) => s + e.diesel, 0);
+  const decompUnitManut  = equipamentosDecomp.reduce((s, e) => s + e.manutencao, 0);
+  const decompUnitOp     = equipamentosDecomp.reduce((s, e) => s + e.maoDeObra, 0);
+  const decompUnitIndir  = equipamentosDecomp.reduce((s, e) => s + e.indiretos, 0);
   const decompUnitManual = volumes.volumeInSitu > 0
     ? (manualCost * horasMaquinaRateio) / volumes.volumeInSitu
     : 0;
+  const markupManual = getMarkupPorCategoria(params, category);
   const custo_unitario = decompUnitDiesel + decompUnitManut + decompUnitOp + decompUnitIndir + decompUnitManual;
+  const precoUnitEquipamentos = equipamentosDecomp.reduce((s, e) => s + e.preco, 0);
+  equipamentosDecomp.forEach((decomp, index) => {
+    if (!equipamentosAuditoria[index]) return;
+    Object.assign(equipamentosAuditoria[index], {
+      diesel_R$_m3: decomp.diesel,
+      manutencao_R$_m3: decomp.manutencao,
+      mo_R$_m3: decomp.maoDeObra,
+      indireto_R$_m3: decomp.indiretos,
+      custo_R$_m3: decomp.custo,
+      markup: decomp.markup,
+      preco_R$_m3: decomp.preco,
+      total_maquina_obra_R$: decomp.preco * volumes.volumeInSitu,
+    });
+  });
   const rateioExec = "escavadeira/trator/grade/rolo/pipa ÷ m³ empolado; patrol e demais ÷ m³ in situ";
   const dieselViagensExec = dieselCalculos
     .filter((c) => c.usaCicloViagens)
@@ -1265,46 +1314,46 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [])
   ];
 
   // 4. Fatores da Planilha (Composição de Preço)
-  const fatorBase     = toNum(item.fatorBase,   toNum(params?.fatorBase, ASSUMPTIONS.markup.fatorBase));
-  const ajusteFinal   = toNum(item.ajusteFinal, toNum(params?.ajusteFinal, ASSUMPTIONS.markup.ajusteFinal));
-  const valorAposFator1 = custo_unitario   * fatorBase;
-  const valorAposFator2 = valorAposFator1 * ajusteFinal;
-  let preco_unitario = valorAposFator2;
-  const markup = custo_unitario > 0 ? (preco_unitario / custo_unitario) : (fatorBase * ajusteFinal);
+  const preco_unitario = precoUnitEquipamentos + (decompUnitManual * markupManual);
+  const markup = custo_unitario > 0 ? (preco_unitario / custo_unitario) : getMarkupPorCategoria(params, category);
+  const fatorBase = 1;
+  const ajusteFinal = markup;
+  const valorAposFator1 = custo_unitario;
+  const valorAposFator2 = preco_unitario;
   const bdi = toNum(params?.defaultBDI, 20);
 
   const fatoresAuditoria = [
     auditRow({
-      label: "Fator base (markup)",
+      label: "Base de custo",
       valor: fatorBase,
       unidade: "×",
-      formula: "fatorBase do item, ou de params, ou padrão (2,3)",
-      formulaExec: `${fmt(fatorBase, 2)}×`,
-      origem: item.fatorBase != null ? "Item (manual)" : "Parâmetros",
-      status: item.fatorBase != null ? "manual" : "calculado",
+      formula: "custo unitario antes do markup por categoria",
+      formulaExec: `${fmt(fatorBase, 2)}x`,
+      origem: "Engine",
+      status: "calculado",
     }),
     auditRow({
-      label: "Após fator base",
+      label: "Custo unitario",
       valor: valorAposFator1,
       unidade: `R$/${unit}`,
-      formula: "custo unitário × fator base",
-      formulaExec: `${fmtBRL(custo_unitario)} × ${fmt(fatorBase, 2)} = ${fmtBRL(valorAposFator1)}`,
+      formula: "soma dos componentes unitarios",
+      formulaExec: `${fmtBRL(valorAposFator1)}`,
     }),
     auditRow({
-      label: "Ajuste de risco / outros",
+      label: "Markup efetivo por categoria",
       valor: ajusteFinal,
       unidade: "×",
-      formula: "ajusteFinal do item, ou de params, ou padrão (1,2)",
-      formulaExec: `${fmt(ajusteFinal, 2)}×`,
-      origem: item.ajusteFinal != null ? "Item (manual)" : "Parâmetros",
-      status: item.ajusteFinal != null ? "manual" : "calculado",
+      formula: "preco unitario / custo unitario",
+      formulaExec: `${fmt(ajusteFinal, 2)}x`,
+      origem: "params.markup_por_categoria",
+      status: "calculado",
     }),
     auditRow({
-      label: "Após ajuste final",
+      label: "Preco venda unitario",
       valor: valorAposFator2,
       unidade: `R$/${unit}`,
-      formula: "(custo × fator base) × ajuste final",
-      formulaExec: `${fmtBRL(valorAposFator1)} × ${fmt(ajusteFinal, 2)} = ${fmtBRL(valorAposFator2)}`,
+      formula: "soma(custo por equipamento x markup da categoria)",
+      formulaExec: `${fmtBRL(valorAposFator2)}`,
     }),
     auditRow({
       label: "Markup efetivo",
@@ -1350,8 +1399,8 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [])
       label: "Preço unitário",
       valor: preco_unitario,
       unidade: `R$/${unit}`,
-      formula: "custo unitário × fator base × ajuste final",
-      formulaExec: `${fmtBRL(custo_unitario)} × ${fmt(fatorBase, 2)} × ${fmt(ajusteFinal, 2)} = ${fmtBRL(preco_unitario)}/${unit}`,
+      formula: "custo unitario x markup por categoria",
+      formulaExec: `${fmtBRL(custo_unitario)} x ${fmt(markup, 2)} = ${fmtBRL(preco_unitario)}/${unit}`,
     }),
     auditRow({
       label: "Quantidade",

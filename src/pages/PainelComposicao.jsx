@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from "react";
 import { useStore } from "../store";
-import SpreadsheetGrid from "../components/spreadsheet/SpreadsheetGrid";
 import ValueCell from "../components/spreadsheet/ValueCell";
 import { SS } from "../styles/spreadsheetTheme";
-import { calcQuotationTotals } from "../services/costEngine";
+import { calcQuotationTotals, getMarkupPorCategoria } from "../services/costEngine";
 import { ASSUMPTIONS } from "../config/assumptions.config";
+import { calcVolumeComEmpolamento } from "../utils/empolamento";
 import { fmt, fmtBRL } from "../utils/format";
 
 // ──────────────────────────────────────────────────────────────────
@@ -32,7 +32,7 @@ const ROW_HEIGHT = 26;
 
 const GroupHeader = ({ label, sub }) => (
   <tr>
-    <td colSpan={7} style={{
+    <td colSpan={10} style={{
       padding: "6px 10px",
       background: SS.bgHeader,
       color: SS.headerText,
@@ -56,8 +56,11 @@ const SubtotalRow = ({ label, totals, unit }) => (
     <td style={tdNum(true)}>{fmt(totals.manut  || 0, 4)}</td>
     <td style={tdNum(true)}>{fmt(totals.mo     || 0, 4)}</td>
     <td style={tdNum(true)}>{fmt(totals.indir  || 0, 4)}</td>
-    <td style={tdNum(true)}>{fmt(totals.total  || 0, 4)} R$/{unit}</td>
-    <td style={tdNum(true)}>{fmtBRL(totals.totalRs || 0)}</td>
+    <td style={tdNum(true)}>{fmt(totals.custo  || 0, 4)} R$/{unit}</td>
+    <td style={tdNum(true)}>{fmt(totals.markup || 0, 2)}x</td>
+    <td style={tdNum(true)}>{fmt(totals.preco  || 0, 4)} R$/{unit}</td>
+    <td style={tdNum(true)}>{fmtBRL(totals.totalCusto || 0)}</td>
+    <td style={tdNum(true)}>{fmtBRL(totals.totalVenda || 0)}</td>
   </tr>
 );
 
@@ -91,7 +94,7 @@ const toNumber = (value, fallback = 0) => {
 };
 
 const matchesCategoryName = (eq = {}, ...needles) => {
-  const texto = `${eq.categoria || ""} ${eq.nome || eq.equipamento || ""}`.toLowerCase();
+  const texto = `${eq.category || eq.categoria || ""} ${eq.name || eq.nome || eq.equipamento || ""}`.toLowerCase();
   return needles.some((n) => texto.includes(n));
 };
 const isEscavadeira   = (eq = {}) => matchesCategoryName(eq, "escavadeira");
@@ -111,17 +114,10 @@ const usaCicloViagensCategoria = (eq) =>
 const usaDenominadorEmpolado = (eq) =>
   isEscavadeira(eq) || isTratorOuGrade(eq) || isRolo(eq) || isPipa(eq);
 
-const calcVolumeComEmpolamento = (volume, fator) => {
-  const v = toNumber(volume, 0);
-  const f = toNumber(fator, 0);
-  if (v <= 0 || f <= 0) return 0;
-  return v * f;
-};
-
 // ── Decompõe um item em linhas por equipamento (R$/m³ por componente) ──
 // Escavadeira, trator/grade, rolo e caminhão pipa usam m³ empolado;
 // patrol (motoniveladora) e os demais equipamentos usam m³ in situ.
-const buildItemRows = (item) => {
+const buildItemRows = (item, params, { overrideMarkupEnabled = false, overrideMarkup = 1 } = {}) => {
   const aud = item?.detalhes?.auditoria;
   const prod = item?.produtividade_utilizada || 0;
   const unit = item?.unit || "un";
@@ -136,6 +132,7 @@ const buildItemRows = (item) => {
   const volumeInSituPorViagem = toNumber(item?.volumeInSituPorViagem, ASSUMPTIONS.transporte.volumePorViagemInSitu);
   const volumeEmpoladoPorViagem = calcVolumeComEmpolamento(volumeInSituPorViagem, fatorEmpolamento);
   const horasDia = toNumber(item?.horasDia, ASSUMPTIONS.jornada.horasPorDia);
+  const volumeBaseVenda = volumeInSitu || qty;
 
   const eqs = aud?.equipamentos || [];
 
@@ -149,12 +146,13 @@ const buildItemRows = (item) => {
     toNumber(item?.detalhes?.produtividade?.horasMaquinaRateio, 0)
     || (volumeInSitu > 0 && producaoConjuntoBase > 0 ? volumeInSitu / producaoConjuntoBase : 0);
 
-  const rows = eqs.map((e) => {
+  let rows = eqs.map((e) => {
     const empoladoBase = usaDenominadorEmpolado(e);
     const usaCiclo = usaCicloViagensCategoria(e);
     const denominador = empoladoBase ? volumeEmpolado : volumeInSitu;
     const baseRateio = empoladoBase ? "m³ empolado" : "m³ in situ";
-    const nome = e.nome || e.equipamento || "Equipamento";
+    const nome = e.nome || e.equipamento || e.name || "Equipamento";
+    const categoria = e.categoria || e.category || "_default";
     const qtdEq = toNumber(e.quantidade, toNumber(e.qty, 1));
     const viagensHora = toNumber(e.viagensPorHora, 0);
     const m3EmpoladoHoraMaquina = viagensHora * volumeEmpoladoPorViagem;
@@ -184,8 +182,16 @@ const buildItemRows = (item) => {
     const manutUn  = componentUn("manutencao", "manutencao_R$_m3");
     const moUn     = componentUn("operador", "mo_R$_m3");
     const indirUn  = componentUn("indiretos", "indireto_R$_m3");
-    const totalUn  = dieselUn + manutUn + moUn + indirUn;
-    const totalRs  = totalUn * qty;
+    const custoUn  = dieselUn + manutUn + moUn + indirUn;
+    const markupCategoria = toNumber(e.markup, getMarkupPorCategoria(params, categoria));
+    const markupUsado = overrideMarkupEnabled ? overrideMarkup : markupCategoria;
+    const precoUn = overrideMarkupEnabled
+      ? custoUn * markupUsado
+      : toNumber(e.preco_R$_m3, custoUn * markupUsado);
+    const totalCusto = custoUn * volumeBaseVenda;
+    const totalVenda = overrideMarkupEnabled
+      ? precoUn * volumeBaseVenda
+      : toNumber(e.total_maquina_obra_R$, precoUn * volumeBaseVenda);
 
     const fexec = (row, compUn) => {
       const valorHora = toNumber(row?.valorTotal, null);
@@ -200,13 +206,18 @@ const buildItemRows = (item) => {
 
     return {
       nome,
+      categoria,
       qtd:  qtdEq,
       diesel: dieselUn,
       manut:  manutUn,
       mo:     moUn,
       indir:  indirUn,
-      total:  totalUn,
-      totalRs,
+      custo:  custoUn,
+      markup: markupUsado,
+      markupOrigem: overrideMarkupEnabled ? "override do slider" : "params.markup_por_categoria",
+      preco:  precoUn,
+      totalCusto,
+      totalVenda,
       unit,
       // fórmulas auditáveis por célula
       formula: {
@@ -214,11 +225,56 @@ const buildItemRows = (item) => {
         manut:  { f: "manutenção total do projeto ÷ quantidade de rateio", x: fexec(e.manutencao, manutUn) },
         mo:     { f: "mão de obra total do projeto ÷ quantidade de rateio", x: fexec(e.operador, moUn) },
         indir:  { f: "indiretos total do projeto ÷ quantidade de rateio", x: fexec(e.indiretos, indirUn) },
-        total:  { f: "Σ componentes R$/m³",                        x: `${fmt(dieselUn,4)} + ${fmt(manutUn,4)} + ${fmt(moUn,4)} + ${fmt(indirUn,4)} = ${fmt(totalUn,4)}` },
-        totalRs:{ f: "total R$/un × quantidade",                   x: `${fmt(totalUn,4)} × ${fmt(qty,2)} = ${fmtBRL(totalRs)}` },
+        custo:  { f: "diesel + manutencao + mao de obra + indiretos", x: `${fmt(dieselUn,4)} + ${fmt(manutUn,4)} + ${fmt(moUn,4)} + ${fmt(indirUn,4)} = ${fmt(custoUn,4)}` },
+        markup: { f: overrideMarkupEnabled ? "override opcional do painel" : "markup por categoria", x: `${categoria}: ${fmt(markupUsado, 2)}x` },
+        preco:  { f: "custo unitario x markup", x: `${fmt(custoUn,4)} x ${fmt(markupUsado,2)} = ${fmt(precoUn,4)}` },
+        totalCusto:{ f: "custo unitario x volume in situ", x: `${fmt(custoUn,4)} x ${fmt(volumeBaseVenda,2)} = ${fmtBRL(totalCusto)}` },
+        totalVenda:{ f: "preco venda unitario x volume in situ", x: `${fmt(precoUn,4)} x ${fmt(volumeBaseVenda,2)} = ${fmtBRL(totalVenda)}` },
       },
     };
   });
+
+  const custoLinhas = rows.reduce((s, r) => s + r.custo, 0);
+  const precoLinhas = rows.reduce((s, r) => s + r.preco, 0);
+  const custoResto = toNumber(item?.custo_unitario, 0) - custoLinhas;
+  const precoRestoBase = overrideMarkupEnabled
+    ? custoResto * overrideMarkup
+    : toNumber(item?.preco_unitario, 0) - precoLinhas;
+  if (Math.abs(custoResto) > 0.0001 || Math.abs(precoRestoBase) > 0.0001) {
+    const markupResto = custoResto > 0 ? precoRestoBase / custoResto : 0;
+    const totalCusto = custoResto * volumeBaseVenda;
+    const totalVenda = precoRestoBase * volumeBaseVenda;
+    rows = [
+      ...rows,
+      {
+        nome: rows.length === 0 ? "Item sem equipamento / verba" : "Custo manual / ajuste",
+        categoria: item?.category || "_default",
+        qtd: 1,
+        diesel: 0,
+        manut: 0,
+        mo: 0,
+        indir: 0,
+        custo: custoResto,
+        markup: markupResto,
+        markupOrigem: overrideMarkupEnabled ? "override do slider" : "resultado do orcamento",
+        preco: precoRestoBase,
+        totalCusto,
+        totalVenda,
+        unit,
+        formula: {
+          diesel: { f: "sem parcela diesel", x: "0" },
+          manut: { f: "sem parcela manutencao", x: "0" },
+          mo: { f: "sem parcela mao de obra", x: "0" },
+          indir: { f: "sem parcela indireta", x: "0" },
+          custo: { f: "diferenca ate custo_unitario do orcamento", x: `${fmtBRL(item?.custo_unitario || 0)} - ${fmtBRL(custoLinhas)} = ${fmtBRL(custoResto)}` },
+          markup: { f: "preco / custo", x: `${fmtBRL(precoRestoBase)} / ${fmtBRL(custoResto)} = ${fmt(markupResto, 2)}x` },
+          preco: { f: "diferenca ate preco_unitario do orcamento", x: `${fmtBRL(precoRestoBase)}` },
+          totalCusto: { f: "custo unitario x volume", x: `${fmt(custoResto, 4)} x ${fmt(volumeBaseVenda, 2)} = ${fmtBRL(totalCusto)}` },
+          totalVenda: { f: "preco unitario x volume", x: `${fmt(precoRestoBase, 4)} x ${fmt(volumeBaseVenda, 2)} = ${fmtBRL(totalVenda)}` },
+        },
+      },
+    ];
+  }
 
   // Subtotal do item
   const sub = rows.reduce((acc, r) => ({
@@ -226,9 +282,12 @@ const buildItemRows = (item) => {
     manut:   acc.manut  + r.manut,
     mo:      acc.mo     + r.mo,
     indir:   acc.indir  + r.indir,
-    total:   acc.total  + r.total,
-    totalRs: acc.totalRs+ r.totalRs,
-  }), { diesel: 0, manut: 0, mo: 0, indir: 0, total: 0, totalRs: 0 });
+    custo:   acc.custo  + r.custo,
+    preco:   acc.preco  + r.preco,
+    totalCusto: acc.totalCusto + r.totalCusto,
+    totalVenda: acc.totalVenda + r.totalVenda,
+  }), { diesel: 0, manut: 0, mo: 0, indir: 0, custo: 0, preco: 0, totalCusto: 0, totalVenda: 0 });
+  sub.markup = sub.custo > 0 ? sub.preco / sub.custo : 0;
 
   return { eqRows: rows, subtotal: sub, unit, prod, qty, volumeInSitu, volumeEmpolado, fatorEmpolamento };
 };
@@ -274,7 +333,8 @@ export default function PainelComposicao() {
   }, [quotation, equipmentMap, params]);
 
   // Markup / imposto editáveis (state local — não persiste no store)
-  const [markup,         setMarkup]         = useState(ASSUMPTIONS.markup.fatorBase);
+  const [overrideMarkupEnabled, setOverrideMarkupEnabled] = useState(false);
+  const [markup,         setMarkup]         = useState(params?.markup_por_categoria?._default || ASSUMPTIONS.markupPorCategoria._default);
   const [percentImposto, setPercentImposto] = useState(ASSUMPTIONS.comercial.percentualImposto * 100);
 
   if (!quotations || quotations.length === 0) {
@@ -290,23 +350,24 @@ export default function PainelComposicao() {
 
   // Soma global por componente (para a linha "Custo Total do Projeto")
   const grandTotal = itemsCalc.reduce((acc, item) => {
-    const { subtotal } = buildItemRows(item);
+    const { subtotal } = buildItemRows(item, params, { overrideMarkupEnabled, overrideMarkup: markup });
     return {
       diesel:  acc.diesel  + subtotal.diesel,
       manut:   acc.manut   + subtotal.manut,
       mo:      acc.mo      + subtotal.mo,
       indir:   acc.indir   + subtotal.indir,
-      total:   acc.total   + subtotal.total,
-      totalRs: acc.totalRs + subtotal.totalRs,
+      custo:   acc.custo   + subtotal.custo,
+      preco:   acc.preco   + subtotal.preco,
+      totalCusto: acc.totalCusto + subtotal.totalCusto,
+      totalVenda: acc.totalVenda + subtotal.totalVenda,
     };
-  }, { diesel: 0, manut: 0, mo: 0, indir: 0, total: 0, totalRs: 0 });
+  }, { diesel: 0, manut: 0, mo: 0, indir: 0, custo: 0, preco: 0, totalCusto: 0, totalVenda: 0 });
+  grandTotal.markup = grandTotal.custo > 0 ? grandTotal.preco / grandTotal.custo : 0;
 
   // Bloco Comercial (Bloco F simplificado)
-  const custoTotalProjeto  = grandTotal.totalRs;
-  const precoUnitarioMedio = grandTotal.total * markup;
-  const precoFinalProjeto  = precoUnitarioMedio > 0 && grandTotal.total > 0
-    ? custoTotalProjeto * (precoUnitarioMedio / grandTotal.total)
-    : custoTotalProjeto * markup;
+  const custoTotalProjeto  = grandTotal.totalCusto;
+  const precoUnitarioMedio = grandTotal.preco;
+  const precoFinalProjeto  = grandTotal.totalVenda;
   const lucroEstimado      = precoFinalProjeto - custoTotalProjeto;
   const imposto            = lucroEstimado * (percentImposto / 100);
   const lucroLiquido       = lucroEstimado - imposto;
@@ -352,22 +413,26 @@ export default function PainelComposicao() {
               <thead>
                 <tr>
                   <th style={thMain("left", 320)}>Serviço / Equipamento</th>
-                  <th style={thMain("right", 110)}>Diesel</th>
-                  <th style={thMain("right", 110)}>Manutenção</th>
-                  <th style={thMain("right", 110)}>Mão de Obra</th>
-                  <th style={thMain("right", 110)}>Indirétos</th>
-                  <th style={thMain("right", 130)}>Total R$/un</th>
-                  <th style={thMain("right", 160)}>Total R$</th>
+                  <th style={thMain("right", 110)}>Diesel R$/m3</th>
+                  <th style={thMain("right", 120)}>Manut. R$/m3</th>
+                  <th style={thMain("right", 120)}>M.O. R$/m3</th>
+                  <th style={thMain("right", 120)}>Indiretos R$/m3</th>
+                  <th style={thMain("right", 130)}>Custo Un.</th>
+                  <th style={thMain("right", 90)}>Markup</th>
+                  <th style={thMain("right", 140)}>Preco Venda</th>
+                  <th style={thMain("right", 150)}>Total Custo</th>
+                  <th style={thMain("right", 150)}>Total Venda</th>
                 </tr>
                 <tr>
                   <th style={thSub("left")}>(R$/un)</th>
-                  <th style={thSub("right")} colSpan={5}>R$/un</th>
-                  <th style={thSub("right")}>R$ no projeto</th>
+                  <th style={thSub("right")} colSpan={7}>custo unitario -> markup -> preco de venda unitario</th>
+                  <th style={thSub("right")} colSpan={2}>R$ no projeto</th>
                 </tr>
               </thead>
               <tbody>
                 {itemsCalc.map((item) => {
-                  const { eqRows, subtotal, unit, prod, qty, volumeInSitu, volumeEmpolado, fatorEmpolamento } = buildItemRows(item);
+                  const { eqRows, subtotal, unit, prod, qty, volumeInSitu, volumeEmpolado, fatorEmpolamento } =
+                    buildItemRows(item, params, { overrideMarkupEnabled, overrideMarkup: markup });
                   return (
                     <React.Fragment key={item.id || item.desc}>
                       <GroupHeader
@@ -376,7 +441,7 @@ export default function PainelComposicao() {
                       />
                       {eqRows.length === 0 && (
                         <tr>
-                          <td style={tdLabel()} colSpan={7}>
+                          <td style={tdLabel()} colSpan={10}>
                             <span style={{ color: SS.mutedText, fontStyle: "italic" }}>
                               (nenhum equipamento alocado)
                             </span>
@@ -393,8 +458,11 @@ export default function PainelComposicao() {
                           <NumCell value={r.manut}  decimals={4} formula={r.formula.manut.f}  formulaExec={r.formula.manut.x}  origem={`${item.desc} · manutenção`} />
                           <NumCell value={r.mo}     decimals={4} formula={r.formula.mo.f}     formulaExec={r.formula.mo.x}     origem={`${item.desc} · mão de obra`} />
                           <NumCell value={r.indir}  decimals={4} formula={r.formula.indir.f}  formulaExec={r.formula.indir.x}  origem={`${item.desc} · indiretos`} />
-                          <NumCell value={r.total}  decimals={4} formula={r.formula.total.f}  formulaExec={r.formula.total.x}  origem="custo unitário" />
-                          <NumCell value={r.totalRs} decimals={2} formula={r.formula.totalRs.f} formulaExec={r.formula.totalRs.x} origem="custo total no projeto" />
+                          <NumCell value={r.custo}  decimals={4} formula={r.formula.custo.f}  formulaExec={r.formula.custo.x}  origem="custo unitario" />
+                          <NumCell value={r.markup} decimals={2} formula={r.formula.markup.f} formulaExec={r.formula.markup.x} origem={r.markupOrigem} />
+                          <NumCell value={r.preco}  decimals={4} formula={r.formula.preco.f}  formulaExec={r.formula.preco.x}  origem="preco venda unitario" />
+                          <NumCell value={r.totalCusto} decimals={2} formula={r.formula.totalCusto.f} formulaExec={r.formula.totalCusto.x} origem="total custo no projeto" />
+                          <NumCell value={r.totalVenda} decimals={2} formula={r.formula.totalVenda.f} formulaExec={r.formula.totalVenda.x} origem="total venda no projeto" />
                         </tr>
                       ))}
                       {eqRows.length > 0 && (
@@ -407,14 +475,17 @@ export default function PainelComposicao() {
                 {/* ── Linha final: Custo Total do Projeto ── */}
                 <tr>
                   <td style={{ ...tdLabel(true), background: "#FFF2CC", color: SS.accentAmber, borderTop: `2px solid ${SS.accentBlue}` }}>
-                    Custo Total do Projeto
+                    Total do Projeto
                   </td>
                   <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.diesel, 4)}</td>
                   <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.manut,  4)}</td>
                   <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.mo,     4)}</td>
                   <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.indir,  4)}</td>
-                  <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.total,  4)}</td>
-                  <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmtBRL(grandTotal.totalRs)}</td>
+                  <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.custo,  4)}</td>
+                  <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.markup,  2)}x</td>
+                  <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmt(grandTotal.preco,  4)}</td>
+                  <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmtBRL(grandTotal.totalCusto)}</td>
+                  <td style={{ ...tdNum(true), background: "#FFF2CC", borderTop: `2px solid ${SS.accentBlue}` }}>{fmtBRL(grandTotal.totalVenda)}</td>
                 </tr>
               </tbody>
             </table>
@@ -432,14 +503,37 @@ export default function PainelComposicao() {
                 Cenário Comercial
               </h2>
 
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, color: SS.formulaText, fontSize: 12, fontWeight: 700 }}>
+                <input
+                  type="checkbox"
+                  checked={overrideMarkupEnabled}
+                  onChange={(e) => setOverrideMarkupEnabled(e.target.checked)}
+                />
+                Usar markup global do slider
+              </label>
+              <div style={{
+                marginBottom: 10,
+                padding: "6px 8px",
+                background: overrideMarkupEnabled ? "#FFF2CC" : SS.bgAlt,
+                border: `1px solid ${overrideMarkupEnabled ? SS.accentAmber : SS.gridLine}`,
+                color: overrideMarkupEnabled ? SS.accentAmber : SS.mutedText,
+                fontSize: 11,
+                fontFamily: SS.fontUI,
+                fontWeight: 700,
+              }}>
+                {overrideMarkupEnabled
+                  ? `Override ligado: todas as linhas usam ${fmt(markup, 2)}x.`
+                  : "Override desligado: cada equipamento usa params.markup_por_categoria."}
+              </div>
               <ScenarioField
-                label="Markup"
+                label="Markup global (override)"
                 value={markup}
                 onChange={setMarkup}
                 min={1.0} max={4.0} step={0.05}
                 suffix="×"
                 decimals={2}
-                hint={`assumption-chave (default: ${ASSUMPTIONS.markup.fatorBase}×)`}
+                disabled={!overrideMarkupEnabled}
+                hint={`default categoria: ${(params?.markup_por_categoria?._default || ASSUMPTIONS.markupPorCategoria._default).toFixed(2)}x`}
               />
               <ScenarioField
                 label="% Imposto sobre lucro"
@@ -460,14 +554,14 @@ export default function PainelComposicao() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <tbody>
                   <CommercialRow label="Custo total do projeto"            value={custoTotalProjeto} kind="formula" decimals={2} unit="R$"
-                    formula="Σ totalRs por equipamento"
+                    formula="soma dos totais de custo por equipamento"
                     formulaExec={`= ${fmtBRL(custoTotalProjeto)}`} />
                   <CommercialRow label="Preço unitário médio"               value={precoUnitarioMedio} kind="formula" decimals={4} unit={`R$/${itemsCalc[0]?.unit || "un"}`}
-                    formula="custo unitário médio × markup"
-                    formulaExec={`${fmt(grandTotal.total, 4)} × ${fmt(markup, 2)} = ${fmt(precoUnitarioMedio, 4)}`} />
+                    formula="soma dos precos unitarios por categoria"
+                    formulaExec={`= ${fmt(precoUnitarioMedio, 4)}`} />
                   <CommercialRow label="Preço final apresentado"            value={precoFinalProjeto} kind="formula" decimals={2} unit="R$"
-                    formula="custo total × markup efetivo"
-                    formulaExec={`${fmtBRL(custoTotalProjeto)} × ${fmt(markup, 2)} = ${fmtBRL(precoFinalProjeto)}`} />
+                    formula={overrideMarkupEnabled ? "custo total x override do slider" : "soma(preco venda unitario x volume)"}
+                    formulaExec={`= ${fmtBRL(precoFinalProjeto)}`} />
                   <CommercialRow label="Lucro estimado"                     value={lucroEstimado} kind="formula" decimals={2} unit="R$"
                     formula="preço final − custo total"
                     formulaExec={`${fmtBRL(precoFinalProjeto)} − ${fmtBRL(custoTotalProjeto)} = ${fmtBRL(lucroEstimado)}`} />
@@ -487,7 +581,7 @@ export default function PainelComposicao() {
 
           <p style={{ marginTop: 14, fontSize: 11, color: SS.mutedText, fontStyle: "italic" }}>
             Cada célula da tabela mostra a fórmula no hover (passe o mouse sobre o número).
-            Markup e imposto editáveis aqui são locais — alteram apenas a previsão deste painel.
+            O slider de markup so altera o painel quando o override estiver ligado; por padrao vale o markup por categoria.
           </p>
         </>
       )}
@@ -514,9 +608,9 @@ function CommercialRow({ label, value, kind, decimals, unit, bold, formula, form
 }
 
 // ── Slider editável (markup, imposto) ────────────────────────────
-function ScenarioField({ label, value, onChange, min, max, step, suffix, decimals = 2, hint }) {
+function ScenarioField({ label, value, onChange, min, max, step, suffix, decimals = 2, hint, disabled = false }) {
   return (
-    <div style={{ marginBottom: 14 }}>
+    <div style={{ marginBottom: 14, opacity: disabled ? 0.55 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
         <label style={{ fontSize: 12, fontWeight: 700, color: SS.formulaText }}>{label}</label>
         <span style={{
@@ -531,8 +625,9 @@ function ScenarioField({ label, value, onChange, min, max, step, suffix, decimal
       <input
         type="range"
         min={min} max={max} step={step} value={value}
+        disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={{ width: "100%", accentColor: SS.accentBlue }}
+        style={{ width: "100%", accentColor: SS.accentBlue, cursor: disabled ? "not-allowed" : "pointer" }}
       />
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: SS.mutedText, marginTop: 2 }}>
         <span>{fmt(min, decimals)} {suffix}</span>

@@ -2,7 +2,13 @@ import React from "react";
 import { FileText, CheckCircle, DollarSign, Clock } from "lucide-react";
 import { KpiCard, SectionTitle, StatusBadge } from "../components/ui/Card";
 import { fmt, fmtBRL } from "../utils/format";
+import { normalizeFatorEmpolamento } from "../utils/empolamento";
 import S from "../styles/tokens";
+
+const toNum = (value, fallback = 0) => {
+  const n = typeof value === "string" ? parseFloat(value.replace(",", ".")) : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
 
 export default function Dashboard({ quotations, equipment, params }) {
   const approved  = quotations.filter(q => q.status === "aprovado");
@@ -49,12 +55,12 @@ export default function Dashboard({ quotations, equipment, params }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[
               ["Preço do Diesel",         fmtBRL(params.dieselPrice) + "/L"],
-              ["Fator de Manutenção",     fmt(params.maintenanceFactor * 100) + "%"],
-              ["Fator Indiretos",         fmt(params.indirectFactor * 100) + "%"],
+              ["Fator de Manutenção",     fmt(toNum(params.percentual_manutencao) * 100) + "%"],
+              ["Fator Indiretos",         fmt(toNum(params.percentual_indiretos) * 100) + "%"],
               ["Horas/Dia",               params.hoursPerDay + "h"],
               ["Horas/Mês",               params.hoursPerMonth + "h"],
               ["BDI Padrão",              params.defaultBDI + "%"],
-              ["Empolamento",             fmt(params.expansionFactor)],
+              ["Empolamento",             fmt(normalizeFatorEmpolamento(params.fator_empolamento)) + "x"],
               ["Equipamentos Ativos",     equipment.filter(e => e.active).length],
             ].map(([k, v]) => (
               <div key={k} style={{ display: "flex", justifyContent: "space-between", borderBottom: `1px solid ${S.border}`, paddingBottom: 8 }}>
