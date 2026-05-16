@@ -18,9 +18,11 @@ export const INITIAL_PARAMS = {
   // `custo_hh_por_categoria_operador` mantido como alias para compat com versão anterior.
   categorias_operador:             { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperador },
   custo_hh_por_categoria_operador: { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperador },
+  mao_de_obra_direta_base:         { ...ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase },
 
   // ── Pessoas indiretas: R$/h por tipo + cálculo dinâmico de alimentação ──
   pessoas_indiretas:        { ...ASSUMPTIONS.pessoasIndiretas.porTipo },
+  pessoas_indiretas_base:   { ...ASSUMPTIONS.pessoasIndiretas.porTipoBase },
   alimentacao_valor_dia:    ASSUMPTIONS.pessoasIndiretas.alimentacao.valorDia,
   alimentacao_dias_mes:     ASSUMPTIONS.pessoasIndiretas.alimentacao.diasMes,
   alimentacao_horas_ref:    ASSUMPTIONS.pessoasIndiretas.alimentacao.horasRef,

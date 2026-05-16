@@ -1,8 +1,14 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+jest.mock('./services/storage/storageManager', () => ({
+  storageManager: {
+    initIndexedDB: jest.fn(),
+  },
+}));
+
+test('renders dashboard', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const title = screen.getAllByText(/dashboard/i)[0];
+  expect(title).toBeInTheDocument();
 });

@@ -73,6 +73,7 @@ export default function MemoriaCalculo() {
       mobilPct: quotation.mobilPct ?? 0,
       riskPct:  quotation.riskPct  ?? 0,
       indirectPersonnel: quotation.indirectPersonnel || [],
+      totalHorasProjeto: quotation.totalHorasProjeto || 0,
     });
   }, [quotation, equipmentMap, params]);
 

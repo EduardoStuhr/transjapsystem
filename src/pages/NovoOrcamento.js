@@ -6,7 +6,7 @@ import { Row } from "../components/ui/Card";
 import BudgetItem from "../components/budget/BudgetItem";
 import BudgetSummary from "../components/budget/BudgetSummary";
 import PessoasIndiretas from "../components/budget/PessoasIndiretas";
-import { calcQuotationTotals } from "../services/costEngine";
+import { calcNumOperadoresFrota, calcQuotationTotals } from "../services/costEngine";
 import { uid, today } from "../utils/format";
 import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
@@ -67,6 +67,10 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   const [adminPct, setAdminPct] = useState(editQuotation?.adminPct ?? 3);
   const [mobilPct, setMobilPct] = useState(editQuotation?.mobilPct ?? 2);
   const [riskPct,  setRiskPct]  = useState(editQuotation?.riskPct  ?? 1);
+  const numOperadoresFrotaOrcamento = useMemo(
+    () => calcNumOperadoresFrota(items),
+    [items],
+  );
 
   // ── item field update + equipment line mutations ──
   const updateItem = (idx, key, value) => {
@@ -167,8 +171,15 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   };
 
   const totals = useMemo(
-    () => calcQuotationTotals(items, eqMap, params, { bdi, adminPct, mobilPct, riskPct, indirectPersonnel }),
-    [items, bdi, adminPct, mobilPct, riskPct, eqMap, params, indirectPersonnel]
+    () => calcQuotationTotals(items, eqMap, params, {
+      bdi,
+      adminPct,
+      mobilPct,
+      riskPct,
+      indirectPersonnel,
+      totalHorasProjeto: meta.totalHorasProjeto,
+    }),
+    [items, bdi, adminPct, mobilPct, riskPct, eqMap, params, indirectPersonnel, meta.totalHorasProjeto]
   );
 
   const save = (status = "rascunho") => {
@@ -288,8 +299,9 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               serviceOptions={svcOptions}
               params={params}
               indirectPersonnel={indirectPersonnel}
-              volumeEmpoladoObra={meta.volumeEmpoladoObra}
+              numOperadoresFrotaOrcamento={numOperadoresFrotaOrcamento}
               totalHorasProjeto={meta.totalHorasProjeto}
+              volumeEmpoladoObra={meta.volumeEmpoladoObra}
               onUpdate={updateItem}
               onDelete={() => delItem(idx)}
             />

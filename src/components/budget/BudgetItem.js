@@ -114,13 +114,23 @@ export default function BudgetItem({
   serviceOptions,
   params,
   indirectPersonnel = [],
+  numOperadoresFrotaOrcamento = 0,
   volumeEmpoladoObra,
   totalHorasProjeto,
   onUpdate,
   onDelete,
 }) {
   const [panelOpen, setPanelOpen] = useState(false);
-  const result = calcItemCost(item, equipmentMap, params, indirectPersonnel);
+  const result = calcItemCost(
+    item,
+    equipmentMap,
+    params,
+    indirectPersonnel,
+    {
+      numOperadoresFrota: numOperadoresFrotaOrcamento,
+      horasProjeto: totalHorasProjeto,
+    },
+  );
   const {
     custo_unitario,
     preco_unitario,

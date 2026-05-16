@@ -109,6 +109,15 @@ const getVolumeRefIndireto = (params, volumes) => {
 const getViagensPorHora = (eq = {}) =>
   toNum(eq.viagensPorHora ?? eq.viagens_hora ?? eq.tripsPerHour ?? eq.capacidadeViagensHora, 0);
 
+export const calcNumOperadoresFrota = (items = []) =>
+  (Array.isArray(items) ? items : []).reduce((total, item) => {
+    const linhas = Array.isArray(item?.equipmentLines) ? item.equipmentLines : [];
+    return total + linhas.reduce(
+      (s, line) => s + Math.max(toNum(line?.quantity ?? line?.qty, 0), 0),
+      0,
+    );
+  }, 0);
+
 const getHorasDiaItem = (item = {}, params = {}) =>
   toNum(item.horasDia, toNum(params?.horas_dia, toNum(params?.hoursPerDay, ASSUMPTIONS.jornada.horasPorDia)));
 
@@ -250,6 +259,10 @@ export const calcIndiretoModel = (params) => {
 // direta (entram via params.categorias_operador). Mantemos o filtro aqui
 // como defesa para orçamentos legados que ainda tenham essas chaves.
 const TIPOS_NAO_INDIRETOS = new Set(["apontador", "administrativo"]);
+const TIPOS_INDIRETOS_TOTAL_INTEIRO = new Set(["alojamento"]);
+
+export const roundIndiretoLineTotal = (tipo, total) =>
+  TIPOS_INDIRETOS_TOTAL_INTEIRO.has(tipo) ? Math.round(total) : total;
 
 // ── Indireto rateado por m³ por pessoa indireta ──
 // Modelo planilha (CUSTOS EQUIPAMENTOS J22→J23→J24):
@@ -331,7 +344,7 @@ export const calcIndiretoRateadoPorM3 = (
 
     if (custoHora == null) continue;
     const ch = toNum(custoHora, 0);
-    const totalLinha = ch * horas * qty;
+    const totalLinha = roundIndiretoLineTotal(pessoa.tipo, ch * horas * qty);
     totalIndireto += totalLinha;
     linhas.push({
       tipo: pessoa.tipo,
@@ -556,13 +569,15 @@ const buildEquipamentosAuditoria = (item, equipmentMap, params, soil, indiretoMo
 //   - MO      ∝ horas-projeto
 //   - indireto rateado por m³ via calcIndiretoRateadoPorM3
 //   - markup por categoria de equipamento
-const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = []) => {
+const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], context = {}) => {
   const { volumeInSitu, fatorEmpolamento, volumeEmpolado } = getItemVolumes(item, params);
 
   const prazoMeses   = toNum(item.prazoMeses,   toNum(params?.prazo_meses,   1));
   const diasUteisMes = toNum(item.diasUteisMes, toNum(params?.dias_uteis_mes, 22));
   const horasDia     = toNum(item.horasDia,     toNum(params?.horas_dia,     9));
-  const horasProjeto = diasUteisMes * horasDia * prazoMeses;
+  const horasProjetoCalculadas = diasUteisMes * horasDia * prazoMeses;
+  const horasProjetoContexto = toNum(context?.horasProjeto, 0);
+  const horasProjeto = horasProjetoContexto > 0 ? horasProjetoContexto : horasProjetoCalculadas;
 
   const equipmentLines = (item.equipmentLines || []).filter(
     l => toNum(l?.quantity ?? l?.qty, 0) > 0 && equipmentMap[l.equipmentId],
@@ -587,10 +602,14 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = []) =>
     Array.isArray(indirectPersonnel) && indirectPersonnel.length > 0
       ? indirectPersonnel
       : (item.indirectPersonnel || []);
-  const numOperadoresFrota = equipmentLines.reduce(
+  const numOperadoresFrotaItem = equipmentLines.reduce(
     (s, l) => s + toNum(l.quantity ?? l.qty, 0),
     0,
   );
+  const numOperadoresFrotaContexto = toNum(context?.numOperadoresFrota, 0);
+  const numOperadoresFrota = numOperadoresFrotaContexto > 0
+    ? numOperadoresFrotaContexto
+    : numOperadoresFrotaItem;
   const indiretoBreakdown = calcIndiretoRateadoPorM3(
     params,
     indirectPersonnelOrcamento,
@@ -825,10 +844,10 @@ const itemUsaModeloNovo = (item) => {
 // ── Custo e Preço do Item Completo ──
 // `indirectPersonnel` é a lista de pessoas indiretas do ORÇAMENTO (não do item).
 // Se omitido, cai para `item.indirectPersonnel` por retro-compat.
-export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = []) => {
+export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [], context = {}) => {
   // Modelo novo (spec) — quando o item tem volumeInSitu, prazoMeses e frota.
   if (itemUsaModeloNovo(item)) {
-    return calcItemCostNovo(item, equipmentMap, params, indirectPersonnel);
+    return calcItemCostNovo(item, equipmentMap, params, indirectPersonnel, context);
   }
 
   // VB (Verba Bruta): cálculo direto sem produtividade, eficiência ou markup
@@ -1594,11 +1613,15 @@ export const calcQuotationTotals = (
   items,
   equipmentMap,
   params,
-  { bdi, adminPct, mobilPct, riskPct, indirectPersonnel = [] },
+  { bdi, adminPct, mobilPct, riskPct, indirectPersonnel = [], totalHorasProjeto = 0 },
 ) => {
+  const numOperadoresFrota = calcNumOperadoresFrota(items);
   const itemsCalc = items.map(it => ({
     ...it,
-    ...calcItemCost(it, equipmentMap, params, indirectPersonnel),
+    ...calcItemCost(it, equipmentMap, params, indirectPersonnel, {
+      numOperadoresFrota,
+      horasProjeto: totalHorasProjeto,
+    }),
   }));
 
   const subtotalCost  = itemsCalc.reduce((s, it) => s + (it.custo_unitario * (it.quantity || 1)), 0);

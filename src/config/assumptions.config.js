@@ -25,14 +25,23 @@ export const ASSUMPTIONS = {
   // Usada quando o equipamento declara `categoria_operador` mas não custo_h_operador direto.
   // Chaves em snake_case são o padrão (modelo novo). As com espaço são aliases retro-compat.
   maoDeObraDireta: {
-    porCategoriaOperador: {
-      operador_escavadeira:        32.6316,
-      operador_trator:             24.7368,
-      auxiliar:                    21.0526,
-      // aliases legados (modelo anterior)
-      "Operador Escavadeira":      32.6316,
-      "Operador Trator/Patrol":    24.7368,
-      "Auxiliar":                  21.0526,
+    porCategoriaOperadorBase: {
+      // Salario base sem encargos. O R$/h e derivado por salario * encargos / horas.
+      // Estes valores reproduzem a planilha: 6200/190, 4700/190 e 4000/190.
+      operador_escavadeira:     { salarioMensal: 6200 / 1.70, fatorEncargos: 1.70, horasMes: 190 },
+      operador_trator:          { salarioMensal: 4700 / 1.70, fatorEncargos: 1.70, horasMes: 190 },
+      auxiliar:                 { salarioMensal: 4000 / 1.70, fatorEncargos: 1.70, horasMes: 190 },
+      "Operador Escavadeira":   { salarioMensal: 6200 / 1.70, fatorEncargos: 1.70, horasMes: 190 },
+      "Operador Trator/Patrol": { salarioMensal: 4700 / 1.70, fatorEncargos: 1.70, horasMes: 190 },
+      "Auxiliar":               { salarioMensal: 4000 / 1.70, fatorEncargos: 1.70, horasMes: 190 },
+    },
+    get porCategoriaOperador() {
+      return Object.fromEntries(
+        Object.entries(this.porCategoriaOperadorBase).map(([k, v]) => [
+          k,
+          (v.salarioMensal * v.fatorEncargos) / v.horasMes,
+        ])
+      );
     },
   },
 
@@ -41,12 +50,20 @@ export const ASSUMPTIONS = {
   // NOTA: apontador e administrativo NÃO entram aqui — são mão de obra direta
   // e ficam em `maoDeObraDireta.porCategoriaOperador` (auxiliar / operador_trator).
   pessoasIndiretas: {
-    porTipo: {
-      topografia:      88.8889,
-      laboratorio:     88.8889,
-      alojamento:      46.1111,
-      alimentacao:     null,
-      vigilancia:     138.8889,
+    porTipoBase: {
+      topografia:  { salarioMensal: 16000, horasMes: 180 },
+      laboratorio: { salarioMensal: 16000, horasMes: 180 },
+      alojamento:  { salarioMensal:  8300, horasMes: 180 },
+      alimentacao: null,
+      vigilancia:  { salarioMensal: 25000, horasMes: 180 },
+    },
+    get porTipo() {
+      return Object.fromEntries(
+        Object.entries(this.porTipoBase).map(([k, v]) => [
+          k,
+          v?.salarioMensal != null ? v.salarioMensal / v.horasMes : v,
+        ])
+      );
     },
     alimentacao: {
       valorDia:   40,

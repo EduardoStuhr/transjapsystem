@@ -3,7 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import S from "../../styles/tokens";
 import { fmt, fmtBRL } from "../../utils/format";
 import { ASSUMPTIONS } from "../../config/assumptions.config";
-import { calcIndiretoRateadoPorM3 } from "../../services/costEngine";
+import { calcIndiretoRateadoPorM3, roundIndiretoLineTotal } from "../../services/costEngine";
 
 // ──────────────────────────────────────────────────────────────────
 // <PessoasIndiretas>
@@ -96,7 +96,7 @@ export default function PessoasIndiretas({ value = [], onChange, params, items =
     return value.map((p, idx) => {
       const ch = resolveCustoHora(p.tipo, tabela, params, numOperadoresFrota, numPessoasIndiretas);
       const qty = toNum(p.quantidade, 0);
-      const total = ch.valor * horasProjeto * qty;
+      const total = roundIndiretoLineTotal(p.tipo, ch.valor * horasProjeto * qty);
       return { idx, tipo: p.tipo, quantidade: qty, custoHora: ch.valor, fonte: ch.fonte, hint: ch.hint, total };
     });
   }, [value, tabela, params, numOperadoresFrota, numPessoasIndiretas, horasProjeto]);

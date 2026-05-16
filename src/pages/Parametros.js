@@ -9,8 +9,65 @@ import { MARKUP_PROFILES } from "../data/calibrationRanges";
 import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
 
+const OPERADOR_LABEL = {
+  operador_escavadeira: "Operador Escavadeira",
+  operador_trator: "Operador Trator/Patrol",
+  auxiliar: "Auxiliar",
+};
+
+const OPERADOR_ALIAS = {
+  operador_escavadeira: "Operador Escavadeira",
+  operador_trator: "Operador Trator/Patrol",
+  auxiliar: "Auxiliar",
+};
+
+const PESSOA_INDIRETA_LABEL = {
+  topografia: "Topografia",
+  laboratorio: "Laboratorio",
+  alojamento: "Alojamento",
+  vigilancia: "Vigilancia",
+};
+
+const cloneBaseMap = (map) =>
+  Object.fromEntries(
+    Object.entries(map || {}).map(([k, v]) => [
+      k,
+      v && typeof v === "object" ? { ...v } : v,
+    ])
+  );
+
+const deriveOperadorRSh = (base) => {
+  const salario = Number(base?.salarioMensal);
+  const encargos = Number(base?.fatorEncargos);
+  const horas = Number(base?.horasMes);
+  return Number.isFinite(salario) && Number.isFinite(encargos) && horas > 0
+    ? (salario * encargos) / horas
+    : 0;
+};
+
+const derivePessoaRSh = (base) => {
+  if (base == null) return null;
+  const salario = Number(base?.salarioMensal);
+  const horas = Number(base?.horasMes);
+  return Number.isFinite(salario) && horas > 0 ? salario / horas : 0;
+};
+
+const hydrateParams = (params) => ({
+  ...params,
+  mao_de_obra_direta_base: cloneBaseMap(
+    params.mao_de_obra_direta_base || ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase
+  ),
+  pessoas_indiretas_base: cloneBaseMap(
+    params.pessoas_indiretas_base || ASSUMPTIONS.pessoasIndiretas.porTipoBase
+  ),
+});
+
+const hasOverride = (value, derived) =>
+  typeof value === "number" && Number.isFinite(value) && Math.abs(value - derived) > 1e-9;
+
 export default function Parametros({ params, setParams }) {
-  const [local, setLocal] = useState({ ...params });
+  const [local, setLocal] = useState(() => hydrateParams(params));
+  const [focusedPessoaIndireta, setFocusedPessoaIndireta] = useState(null);
   const set  = (k, v) => setLocal(p => ({ ...p, [k]: parseFloat(v) || 0 }));
   const setFatorEmpolamento = (v) => {
     const parsed = parseFloat(v);
@@ -30,6 +87,95 @@ export default function Parametros({ params, setParams }) {
     ...p,
     [mapKey]: { ...(p?.[mapKey] || {}), [k]: (v === "" || v == null) ? null : parseFloat(v) || 0 },
   }));
+  const setOperadorBase = (tipo, campo, value) => setLocal((p) => {
+    const baseAtual = p.mao_de_obra_direta_base?.[tipo]
+      || ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase[tipo];
+    const derivadoAtual = deriveOperadorRSh(baseAtual);
+    const valorAtual = p.categorias_operador?.[tipo];
+    const manterOverride = hasOverride(valorAtual, derivadoAtual);
+    const baseLinha = {
+      ...baseAtual,
+      [campo]: parseFloat(value) || 0,
+    };
+    const derivado = deriveOperadorRSh(baseLinha);
+    const alias = OPERADOR_ALIAS[tipo];
+    const nextBase = { ...(p.mao_de_obra_direta_base || {}), [tipo]: baseLinha };
+    if (alias) nextBase[alias] = { ...baseLinha };
+    const nextCategorias = {
+      ...(p.categorias_operador || {}),
+      [tipo]: manterOverride ? valorAtual : derivado,
+    };
+    if (alias) nextCategorias[alias] = nextCategorias[tipo];
+    return {
+      ...p,
+      mao_de_obra_direta_base: nextBase,
+      categorias_operador: nextCategorias,
+      custo_hh_por_categoria_operador: { ...nextCategorias },
+    };
+  });
+  const setOperadorOverride = (tipo, value) => setLocal((p) => {
+    const baseLinha = p.mao_de_obra_direta_base?.[tipo]
+      || ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase[tipo];
+    const derivado = deriveOperadorRSh(baseLinha);
+    const parsed = parseFloat(value);
+    const nextValue = value === "" || value == null || !Number.isFinite(parsed) ? derivado : parsed;
+    const alias = OPERADOR_ALIAS[tipo];
+    const nextCategorias = {
+      ...(p.categorias_operador || {}),
+      [tipo]: nextValue,
+    };
+    if (alias) nextCategorias[alias] = nextValue;
+    return {
+      ...p,
+      categorias_operador: nextCategorias,
+      custo_hh_por_categoria_operador: { ...nextCategorias },
+    };
+  });
+  const setPessoaBase = (tipo, campo, value) => setLocal((p) => {
+    const baseAtual = p.pessoas_indiretas_base?.[tipo]
+      || ASSUMPTIONS.pessoasIndiretas.porTipoBase[tipo];
+    if (baseAtual == null) return p;
+    const derivadoAtual = derivePessoaRSh(baseAtual);
+    const valorAtual = p.pessoas_indiretas?.[tipo];
+    const manterOverride = hasOverride(valorAtual, derivadoAtual);
+    const baseLinha = {
+      ...baseAtual,
+      [campo]: parseFloat(value) || 0,
+    };
+    const derivado = derivePessoaRSh(baseLinha);
+    return {
+      ...p,
+      pessoas_indiretas_base: {
+        ...(p.pessoas_indiretas_base || {}),
+        [tipo]: baseLinha,
+      },
+      pessoas_indiretas: {
+        ...(p.pessoas_indiretas || {}),
+        [tipo]: manterOverride ? valorAtual : derivado,
+      },
+    };
+  });
+  const setPessoaOverride = (tipo, value) => setLocal((p) => {
+    const baseLinha = p.pessoas_indiretas_base?.[tipo]
+      || ASSUMPTIONS.pessoasIndiretas.porTipoBase[tipo];
+    const derivado = derivePessoaRSh(baseLinha);
+    const parsed = parseFloat(value);
+    const nextValue = value === "" || value == null || !Number.isFinite(parsed) ? derivado : parsed;
+    return {
+      ...p,
+      pessoas_indiretas: {
+        ...(p.pessoas_indiretas || {}),
+        [tipo]: nextValue,
+      },
+    };
+  });
+  const valorPessoaIndireta = (k) => {
+    const v = (local.pessoas_indiretas || {})[k];
+    if (v == null || v === "") return "";
+    if (focusedPessoaIndireta === k) return v;
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(4) : v;
+  };
 
   // Preview do modelo de indireto (sem mock — calculado dos próprios campos)
   const indiretoTotalMensal =
@@ -155,46 +301,112 @@ export default function Parametros({ params, setParams }) {
 
       {/* ══ Tabela: R$/h por categoria de operador ══ */}
       <div className="card" style={{ padding: 24 }}>
-        <SectionTitle>Mão de Obra Direta — R$/h por categoria de operador</SectionTitle>
-        <p style={{ fontSize: 13, color: S.muted, marginTop: 0, marginBottom: 12 }}>
-          Cada equipamento aponta uma <code style={{ color: S.accent2 }}>categoria_operador</code>;
-          o engine consulta esta tabela para obter o R$/h. Edite os valores diretamente.
-        </p>
-        <Row>
-          {Object.keys(local.categorias_operador || {})
-            .filter(k => !/^[A-Z]/.test(k))
-            .map(k => (
+        <SectionTitle>Mão de Obra Direta — base de cálculo</SectionTitle>
+        {Object.keys(OPERADOR_LABEL).map((k) => {
+          const base = local.mao_de_obra_direta_base?.[k]
+            || ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase[k];
+          const derivado = deriveOperadorRSh(base);
+          const valorAtual = (local.categorias_operador || {})[k];
+          const override = hasOverride(valorAtual, derivado) ? valorAtual : "";
+          return (
+            <Row key={k}>
               <Input
-                key={k}
-                label={k}
-                value={(local.categorias_operador || {})[k] ?? 0}
-                onChange={v => setMapValue("categorias_operador", k, v)}
+                label={`${OPERADOR_LABEL[k]} — salário mensal (R$)`}
+                value={base?.salarioMensal ?? 0}
+                onChange={v => setOperadorBase(k, "salarioMensal", v)}
                 type="number"
                 step="0.01"
               />
-            ))}
-        </Row>
+              <Input
+                label="Fator encargos (×)"
+                value={base?.fatorEncargos ?? 1}
+                onChange={v => setOperadorBase(k, "fatorEncargos", v)}
+                type="number"
+                step="0.01"
+              />
+              <Input
+                label="Horas/mês"
+                value={base?.horasMes ?? 0}
+                onChange={v => setOperadorBase(k, "horasMes", v)}
+                type="number"
+                step="1"
+              />
+              <Input
+                label="R$/h derivado"
+                value={derivado.toFixed(6)}
+                onChange={() => {}}
+                type="number"
+                readOnly
+              />
+              <Input
+                label="Override R$/h"
+                value={override}
+                onChange={v => setOperadorOverride(k, v)}
+                type="number"
+                step="0.000001"
+                placeholder="opcional"
+              />
+            </Row>
+          );
+        })}
       </div>
 
       {/* ══ Tabela: Pessoas indiretas + alimentação dinâmica ══ */}
       <div className="card" style={{ padding: 24 }}>
-        <SectionTitle>Pessoas Indiretas — R$/h por tipo</SectionTitle>
-        <p style={{ fontSize: 13, color: S.muted, marginTop: 0, marginBottom: 12 }}>
-          O <b>indireto rateado</b> usa estes valores. <code style={{ color: S.accent2 }}>alimentacao</code>{" "}
-          em branco aciona cálculo dinâmico baseado no tamanho da equipe.
-        </p>
+        <SectionTitle>Pessoas Indiretas — base de cálculo</SectionTitle>
+        {Object.keys(PESSOA_INDIRETA_LABEL).map((k) => {
+          const base = local.pessoas_indiretas_base?.[k]
+            || ASSUMPTIONS.pessoasIndiretas.porTipoBase[k];
+          const derivado = derivePessoaRSh(base);
+          const valorAtual = (local.pessoas_indiretas || {})[k];
+          const override = hasOverride(valorAtual, derivado) ? valorPessoaIndireta(k) : "";
+          return (
+            <Row key={k}>
+              <Input
+                label={`${PESSOA_INDIRETA_LABEL[k]} — salário mensal (R$)`}
+                value={base?.salarioMensal ?? 0}
+                onChange={v => setPessoaBase(k, "salarioMensal", v)}
+                type="number"
+                step="0.01"
+              />
+              <Input
+                label="Horas/mês"
+                value={base?.horasMes ?? 0}
+                onChange={v => setPessoaBase(k, "horasMes", v)}
+                type="number"
+                step="1"
+              />
+              <Input
+                label="R$/h derivado"
+                value={(derivado || 0).toFixed(6)}
+                onChange={() => {}}
+                type="number"
+                readOnly
+              />
+              <Input
+                label="Override R$/h"
+                value={override}
+                onChange={v => setPessoaOverride(k, v)}
+                onFocus={() => setFocusedPessoaIndireta(k)}
+                onBlur={() => setFocusedPessoaIndireta(null)}
+                type="number"
+                step="0.000001"
+                placeholder="opcional"
+              />
+            </Row>
+          );
+        })}
         <Row>
-          {Object.keys(local.pessoas_indiretas || {}).map(k => (
-            <Input
-              key={k}
-              label={k}
-              value={(local.pessoas_indiretas || {})[k] ?? ""}
-              onChange={v => setMapNullable("pessoas_indiretas", k, v)}
-              type="number"
-              step="0.01"
-              placeholder={k === "alimentacao" ? "vazio = dinâmico" : ""}
-            />
-          ))}
+          <Input
+            label="Alimentação — R$/h"
+            value={valorPessoaIndireta("alimentacao")}
+            onChange={v => setMapNullable("pessoas_indiretas", "alimentacao", v)}
+            onFocus={() => setFocusedPessoaIndireta("alimentacao")}
+            onBlur={() => setFocusedPessoaIndireta(null)}
+            type="number"
+            step="0.0001"
+            placeholder="vazio = dinâmico"
+          />
         </Row>
         <SectionTitle>Cálculo dinâmico de alimentação</SectionTitle>
         <Row>

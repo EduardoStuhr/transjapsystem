@@ -12,6 +12,7 @@ export default function Input({
   readOnly = false,
   disabled = false,
   style: ext = {},
+  ...inputProps
 }) {
   return (
     <div className="field" style={ext}>
@@ -26,6 +27,7 @@ export default function Input({
         readOnly={readOnly}
         disabled={disabled}
         className="field__input"
+        {...inputProps}
       />
     </div>
   );

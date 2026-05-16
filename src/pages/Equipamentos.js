@@ -114,7 +114,7 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
                 onChange={v => set("categoria_operador", v)}
                 options={CATEGORIAS_OPERADOR.map(c => ({ value: c, label: LABEL_CATEGORIA_OPERADOR[c] }))}
               />
-              <Input label="Operador R$/h (override)"  value={form.custo_h_operador}        onChange={v => set("custo_h_operador", v)}        type="number" step="0.01" />
+              <Input label="Operador R$/h (override)"  value={form.custo_h_operador}        onChange={v => set("custo_h_operador", v)}        type="number" step="0.000001" />
               <Input label="Salário Operador (R$/mês — legado)" value={form.salario_operador_mensal} onChange={v => set("salario_operador_mensal", v)} type="number" step="0.01" />
             </Row>
             <Input
