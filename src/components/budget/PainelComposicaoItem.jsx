@@ -584,6 +584,10 @@ function CardTransporteAgregado({ eq, unit }) {
           />
         </div>
 
+        {t.modoFrete === "por_m3_planilha" && t.decomposicaoPlanilha && (
+          <DecomposicaoPlanilha t={t} unit={unit} />
+        )}
+
         <div
           style={{
             display: "grid",
@@ -613,6 +617,29 @@ function CardTransporteAgregado({ eq, unit }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function DecomposicaoPlanilha({ t, unit }) {
+  const d = t.decomposicaoPlanilha || {};
+  const empPct = ((d.fatorEmpAcresc || 0) * 100).toFixed(0);
+  const perdaPct = ((d.perdaCarregamentoPct || 0) * 100).toFixed(0);
+  return (
+    <div>
+      <SubTitle>Decomposição (modo planilha)</SubTitle>
+      <SimpleTable
+        head={["Parcela", "R$/m³ empolado"]}
+        aligns={["left", "right"]}
+        rows={[
+          ["Frete base", fmtBRLPreciso(d.parcelaBase, 4)],
+          [`Acréscimo por empolamento (${empPct}%)`, fmtBRLPreciso(d.parcelaEmpolamento, 4)],
+          [`Acréscimo por perda (${perdaPct}%)`, fmtBRLPreciso(d.parcelaPerda, 4)],
+          [<Strong>= Custo total por m³ empolado</Strong>, <Strong>{fmtBRLPreciso(d.somaPorM3Empolado, 4)}</Strong>],
+          [`× Volume empolado total`, `${fmt(d.volumeEmpoladoTotal, 2)} m³ empolado`],
+          [<Strong>= Custo total frete</Strong>, <Strong>{fmtBRL(t.custoTotalFrete)}</Strong>],
+        ]}
+      />
     </div>
   );
 }

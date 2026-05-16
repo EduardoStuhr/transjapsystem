@@ -641,18 +641,25 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
             <Input
               label="DMT (km)"
               value={t.dmtKm}
-              onChange={(v) => onSet("dmtKm", toNumber(v) || 0)}
-              type="number"
-              step="0.01"
-              min="0"
+              onChange={(v) => onSet("dmtKm", v)}
+              type="text"
+              placeholder="0,00"
             />
             <Input
-              label="Volume base de transporte (m³ in situ)"
+              label="Volume base de transporte"
               value={t.volumeBaseTransporte}
-              onChange={(v) => onSet("volumeBaseTransporte", toNumber(v) || 0)}
-              type="number"
-              step="0.01"
-              min="0"
+              onChange={(v) => onSet("volumeBaseTransporte", v)}
+              type="text"
+              placeholder="0,00"
+            />
+            <Select
+              label="Tipo do volume base"
+              value={t.volumeBaseTipo}
+              onChange={(v) => onSet("volumeBaseTipo", v)}
+              options={[
+                { value: "in_situ", label: "In situ (volume no solo)" },
+                { value: "empolado", label: "Empolado (volume após escavação)" },
+              ]}
             />
           </Row>
 
@@ -660,27 +667,22 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
             <Input
               label="Volume in situ por viagem (m³)"
               value={t.volumeInSituPorViagem}
-              onChange={(v) => onSet("volumeInSituPorViagem", toNumber(v) || 0)}
-              type="number"
-              step="0.01"
-              min="0"
+              onChange={(v) => onSet("volumeInSituPorViagem", v)}
+              type="text"
+              placeholder="0,00"
             />
             <Input
-              label="Fator empolamento transporte"
+              label="Acréscimo do frete por empolamento (%)"
               value={t.fatorEmpolamentoTransporte}
-              onChange={(v) => onSet("fatorEmpolamentoTransporte", toNumber(v) || 0)}
-              type="number"
-              step="0.01"
-              min="0"
-              placeholder="ex: 1.36"
+              onChange={(v) => onSet("fatorEmpolamentoTransporte", v)}
+              type="text"
+              placeholder="ex: 40 para 40%"
             />
             <Input
               label="Perda no carregamento (%)"
               value={t.perdaCarregamentoPct}
-              onChange={(v) => onSet("perdaCarregamentoPct", toNumber(v) || 0)}
-              type="number"
-              step="0.01"
-              min="0"
+              onChange={(v) => onSet("perdaCarregamentoPct", v)}
+              type="text"
               placeholder="0 a 100"
             />
           </Row>
@@ -691,25 +693,24 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
               value={t.modoFrete}
               onChange={(v) => onSet("modoFrete", v)}
               options={[
-                { value: "por_viagem", label: "Por viagem" },
-                { value: "por_m3", label: "Por m³" },
+                { value: "por_viagem", label: "Por viagem (R$/viagem × Σ viagens)" },
+                { value: "por_m3_in_situ", label: "Por m³ in situ (simples)" },
+                { value: "por_m3_empolado", label: "Por m³ empolado (simples)" },
+                { value: "por_m3_planilha", label: "Por m³ (planilha — frete × (1 + empol + perda))" },
               ]}
             />
             <Input
-              label={t.modoFrete === "por_m3" ? "Valor do frete (R$/m³)" : "Valor do frete (R$/viagem)"}
+              label={t.modoFrete && t.modoFrete.startsWith("por_m3") ? "Valor do frete (R$/m³)" : "Valor do frete (R$/viagem)"}
               value={t.valorFretePorM3OuViagem}
-              onChange={(v) => onSet("valorFretePorM3OuViagem", toNumber(v) || 0)}
-              type="number"
-              step="0.01"
-              min="0"
+              onChange={(v) => onSet("valorFretePorM3OuViagem", v)}
+              type="text"
+              placeholder="0,00"
             />
             <Input
               label="Markup transporte (×)"
               value={t.markupTransporte}
-              onChange={(v) => onSet("markupTransporte", toNumber(v) || 0)}
-              type="number"
-              step="0.01"
-              min="0"
+              onChange={(v) => onSet("markupTransporte", v)}
+              type="text"
               placeholder="ex: 1.30"
             />
           </Row>
@@ -731,6 +732,61 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
             <Computed label="Preço unitário transporte" valor={`${fmtBRL(calc.precoUnitarioTransporte)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
             <Computed label="Total venda transporte" valor={fmtBRL(calc.totalVendaTransporte)} labelStyle={labelInput} valueStyle={valueChip} />
           </div>
+
+          {calc.decomposicaoPlanilha && (
+            <div style={{
+              marginTop: 10,
+              padding: 12,
+              background: "rgba(0,0,0,0.25)",
+              borderRadius: 6,
+              fontSize: 12,
+              fontFamily: "monospace",
+              color: S.text,
+              borderLeft: `4px solid ${S.accent}`,
+              lineHeight: 1.4,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: S.accent, textTransform: "uppercase", fontSize: 10 }}>
+                Auditoria de Cálculo (Modo Planilha)
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 20px" }}>
+                <span>Volume base ({calc.decomposicaoPlanilha.volumeBaseTipo === "in_situ" ? "in situ" : "empolado"})</span>
+                <span>{fmt(calc.decomposicaoPlanilha.volumeBaseTransporte, 2)} m³</span>
+
+                {calc.decomposicaoPlanilha.volumeBaseTipo === "in_situ" && (
+                  <>
+                    <span>× Fator empolamento material (do contrato)</span>
+                    <span>× {fmt(calc.decomposicaoPlanilha.fatorMaterialMult, 2)}</span>
+                    <div style={{ gridColumn: "span 2", borderBottom: "1px solid rgba(255,255,255,0.1)", margin: "4px 0" }} />
+                    <span style={{ fontWeight: 700 }}>= Volume empolado total</span>
+                    <span style={{ fontWeight: 700 }}>{fmt(calc.decomposicaoPlanilha.volumeEmpoladoTotal, 2)} m³</span>
+                    <div style={{ height: 10, gridColumn: "span 2" }} />
+                  </>
+                )}
+
+                <span>Frete base</span>
+                <span>{fmtBRL(calc.decomposicaoPlanilha.parcelaBase)}/m³ empolado</span>
+
+                <span>+ Acréscimo comercial empolamento ({fmt(calc.decomposicaoPlanilha.fatorEmpAcresc * 100, 0)}%)</span>
+                <span>{fmtBRL(calc.decomposicaoPlanilha.parcelaEmpolamento)}/m³</span>
+
+                <span>+ Acréscimo comercial perda ({fmt(calc.decomposicaoPlanilha.perdaCarregamentoPct * 100, 0)}%)</span>
+                <span>{fmtBRL(calc.decomposicaoPlanilha.parcelaPerda)}/m³</span>
+
+                <div style={{ gridColumn: "span 2", borderBottom: "1px solid rgba(255,255,255,0.1)", margin: "4px 0" }} />
+
+                <span style={{ fontWeight: 700 }}>= Custo total por m³ empolado</span>
+                <span style={{ fontWeight: 700 }}>{fmtBRL(calc.decomposicaoPlanilha.somaPorM3Empolado)}/m³</span>
+
+                <span>× Volume empolado total</span>
+                <span>× {fmt(calc.decomposicaoPlanilha.volumeEmpoladoTotal, 2)} m³</span>
+
+                <div style={{ gridColumn: "span 2", borderBottom: "1px solid rgba(255,255,255,0.25)", margin: "4px 0", height: 2, borderTop: "1px solid rgba(255,255,255,0.25)" }} />
+
+                <span style={{ fontWeight: 700, color: S.accent3, fontSize: 13 }}>= Custo total frete</span>
+                <span style={{ fontWeight: 700, color: S.accent3, fontSize: 13 }}>{fmtBRL(calc.custoTotalFrete)}</span>
+              </div>
+            </div>
+          )}
 
           {calc.validacoes && calc.validacoes.length > 0 && (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

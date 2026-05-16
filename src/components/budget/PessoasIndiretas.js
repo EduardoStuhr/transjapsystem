@@ -53,7 +53,7 @@ function resolveCustoHora(tipo, tabela, params, numOperadoresFrota, numPessoasIn
   return { valor: toNum(raw, 0), fonte: raw == null ? "vazio" : "tabela", hint: "" };
 }
 
-export default function PessoasIndiretas({ value = [], onChange, params, items = [] }) {
+export default function PessoasIndiretas({ value = [], onChange, params, items = [], totalHorasProjeto = 0 }) {
   const tabela = params?.pessoas_indiretas || ASSUMPTIONS.pessoasIndiretas.porTipo;
 
   // Tipos cadastrados nos parâmetros (após filtro de descontinuados).
@@ -77,8 +77,14 @@ export default function PessoasIndiretas({ value = [], onChange, params, items =
     const pm = toNum(it.prazoMeses,   toNum(params?.prazo_meses,   0));
     const du = toNum(it.diasUteisMes, toNum(params?.dias_uteis_mes, 22));
     const hd = toNum(it.horasDia,     toNum(params?.horas_dia,     9));
-    return { horasProjeto: du * hd * pm, prazoMeses: pm, diasUteisMes: du, horasDia: hd };
-  }, [items, params]);
+    const calculatedHoras = du * hd * pm;
+    return {
+      horasProjeto: totalHorasProjeto > 0 ? totalHorasProjeto : calculatedHoras,
+      prazoMeses: pm,
+      diasUteisMes: du,
+      horasDia: hd,
+    };
+  }, [items, params, totalHorasProjeto]);
 
   const numOperadoresFrota = useMemo(() => {
     return calcNumOperadoresFrota(items, params);
@@ -386,7 +392,9 @@ export default function PessoasIndiretas({ value = [], onChange, params, items =
             Cálculo do Indireto Rateado
           </h4>
           <span style={{ marginLeft: "auto", fontSize: 10.5, color: S.muted, fontStyle: "italic" }}>
-            horas projeto = {fmt(diasUteisMes, 0)} dias × {fmt(horasDia, 0)} h × {fmt(prazoMeses, 0)} meses = {fmt(horasProjeto, 0)} h
+            horas projeto = {totalHorasProjeto > 0
+              ? `${fmt(horasProjeto, 0)} h (valor fixado no orçamento)`
+              : `${fmt(diasUteisMes, 0)} dias × ${fmt(horasDia, 0)} h × ${fmt(prazoMeses, 0)} meses = ${fmt(horasProjeto, 0)} h`}
           </span>
         </div>
 

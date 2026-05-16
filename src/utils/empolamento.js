@@ -13,16 +13,18 @@ export const resolveFatorEmpolamento = (value, fallback = DEFAULT_FATOR_EMPOLAME
   const fallbackNormalizado = fallbackNum > 0 && fallbackNum < 1 ? 1 + fallbackNum : fallbackNum;
   const raw = toNum(value, fallbackNormalizado);
 
+  // Caso 1: valor em decimal (0,36 = 36% de acréscimo) → multiplicador.
   if (raw > 0 && raw < 1) {
     return {
       raw,
       value: 1 + raw,
       status: "converted",
-      message: `Fator ${raw.toFixed(2)} convertido para ${(1 + raw).toFixed(2)}x.`,
+      message: `Fator ${raw.toFixed(2)} interpretado como acréscimo (${(raw * 100).toFixed(0)}%) → ${(1 + raw).toFixed(2)}×.`,
     };
   }
 
-  if (raw > 0) {
+  // Caso 2: multiplicador razoável (1 ≤ raw ≤ 5).
+  if (raw >= 1 && raw <= 5) {
     return {
       raw,
       value: raw,
@@ -31,11 +33,24 @@ export const resolveFatorEmpolamento = (value, fallback = DEFAULT_FATOR_EMPOLAME
     };
   }
 
+  // Caso 3: valor entre 5 e 100 → provável % digitado sem decimal
+  // (ex: "40" em vez de "0,40"). Resgata como percentual.
+  if (raw > 5 && raw <= 100) {
+    const corrigido = 1 + raw / 100;
+    return {
+      raw,
+      value: corrigido,
+      status: "rescued",
+      message: `Fator ${raw} foi tratado como percentual (${raw}%) → ${corrigido.toFixed(2)}×. Use "0,${String(Math.round(raw)).padStart(2, "0")}" ou "${corrigido.toFixed(2)}" para evitar ambiguidade.`,
+    };
+  }
+
+  // Caso 4: valor absurdo (> 100) — usa fallback.
   return {
     raw,
     value: fallbackNormalizado,
     status: "invalid",
-    message: `Fator invalido; usando ${fallbackNormalizado.toFixed(2)}x.`,
+    message: `Fator ${raw} inválido (>100); usando fallback ${fallbackNormalizado.toFixed(2)}×.`,
   };
 };
 

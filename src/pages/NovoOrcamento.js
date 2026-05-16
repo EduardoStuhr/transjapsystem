@@ -308,6 +308,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
             onChange={setIndirectPersonnel}
             params={params}
             items={items}
+            totalHorasProjeto={meta.totalHorasProjeto}
           />
 
           <div style={{ marginTop: 8 }}>

@@ -7,7 +7,7 @@
 // por m³ e entra no item como linha de composição separada.
 // ══════════════════════════════════════════════════════════════════
 
-import { normalizeFatorEmpolamento, DEFAULT_FATOR_EMPOLAMENTO } from "../utils/empolamento";
+import { resolveFatorEmpolamento, DEFAULT_FATOR_EMPOLAMENTO } from "../utils/empolamento";
 
 const toNum = (v, fallback = 0) => {
   if (typeof v === "number") return Number.isFinite(v) ? v : fallback;
@@ -21,7 +21,18 @@ const safePct = (v) => {
   return n > 1 ? n / 100 : n;
 };
 
-export const MODOS_FRETE = ["por_m3", "por_viagem"];
+// 4 modos de frete:
+//  • por_viagem        — R$/viagem × Σ viagens (modo legado)
+//  • por_m3_in_situ    — R$/m³ × vol_in_situ (sem inflação)
+//  • por_m3_empolado   — R$/m³ × vol_empolado (sem inflação)
+//  • por_m3_planilha   — R$/m³ × vol_empolado × (1 + empolamento + perda)
+//                        ← Modelo da planilha RONMA. Default para itens novos.
+export const MODOS_FRETE = [
+  "por_viagem",
+  "por_m3_in_situ",
+  "por_m3_empolado",
+  "por_m3_planilha",
+];
 
 export const TRANSPORTE_AGREGADO_DEFAULT = Object.freeze({
   enabled: false,
@@ -30,38 +41,53 @@ export const TRANSPORTE_AGREGADO_DEFAULT = Object.freeze({
   volumeInSituPorViagem: 15,
   fatorEmpolamentoTransporte: "",
   perdaCarregamentoPct: 0,
-  modoFrete: "por_viagem",
+  modoFrete: "por_m3_planilha",
   valorFretePorM3OuViagem: 0,
   volumeBaseTransporte: 0,
+  volumeBaseTipo: "in_situ",
   markupTransporte: 1,
 });
 
 // normalizeTransporteAgregado — converte o objeto cru do item em valores
-// numéricos consistentes (fator empolamento normalizado para multiplicador,
-// modoFrete validado, defaults garantidos). Não calcula totais.
+// numéricos consistentes. Dois fatores distintos são tratados:
+//   • fatorMaterial            — do contrato/material (item.fatorEmpolamento,
+//                                default 1,36). Converte vol_in_situ → vol_empolado.
+//   • fatorEmpolamentoTransporte — fator do frete (ex: 1,40). Aplicado SÓ
+//                                como acréscimo no preço (1 + emp + perda).
 export const normalizeTransporteAgregado = (item = {}, params = {}) => {
   const cru = item?.transporteAgregado || {};
   const enabled = !!cru.enabled;
 
-  const fatorFallback = toNum(
-    params?.fatorEmpolamentoPadrao,
-    toNum(item?.fatorEmpolamento, DEFAULT_FATOR_EMPOLAMENTO),
-  );
-  const fatorEmpolamento = normalizeFatorEmpolamento(cru.fatorEmpolamentoTransporte, fatorFallback);
-  const modoFreteCru = String(cru.modoFrete || "por_viagem").toLowerCase();
-  const modoFrete = MODOS_FRETE.includes(modoFreteCru) ? modoFreteCru : "por_viagem";
+  const paramFallback = toNum(params?.fatorEmpolamentoPadrao, DEFAULT_FATOR_EMPOLAMENTO);
+  // Fator do MATERIAL (contrato). Vem do item, com fallback de params/default.
+  const fatorMaterialInfo = resolveFatorEmpolamento(item?.fatorEmpolamento, paramFallback);
+  const fatorMaterial = fatorMaterialInfo.value;
+
+  // Fator do TRANSPORTE (acréscimo no frete). Vem só do bloco de transporte.
+  // Se vazio, cai para o fator material — neutralizando o acréscimo.
+  const fatorTransporteInfo = resolveFatorEmpolamento(cru.fatorEmpolamentoTransporte, fatorMaterial);
+  const fatorEmpolamento = fatorTransporteInfo.value;
+
+  const modoFreteCru = String(cru.modoFrete || "por_m3_planilha").toLowerCase();
+  const modoFrete = MODOS_FRETE.includes(modoFreteCru) ? modoFreteCru : "por_m3_planilha";
 
   return {
     enabled,
     descricao: String(cru.descricao || TRANSPORTE_AGREGADO_DEFAULT.descricao),
     dmtKm: toNum(cru.dmtKm, 0),
     volumeInSituPorViagem: toNum(cru.volumeInSituPorViagem, 0),
+    fatorMaterial,
+    fatorMaterialStatus: fatorMaterialInfo.status,
+    fatorMaterialMessage: fatorMaterialInfo.message,
     fatorEmpolamentoTransporte: fatorEmpolamento,
     fatorEmpolamentoTransporteRaw: cru.fatorEmpolamentoTransporte,
+    fatorEmpolamentoStatus: fatorTransporteInfo.status,
+    fatorEmpolamentoMessage: fatorTransporteInfo.message,
     perdaCarregamentoPct: safePct(cru.perdaCarregamentoPct),
     modoFrete,
     valorFretePorM3OuViagem: toNum(cru.valorFretePorM3OuViagem, 0),
     volumeBaseTransporte: toNum(cru.volumeBaseTransporte, 0),
+    volumeBaseTipo: String(cru.volumeBaseTipo || "in_situ").toLowerCase(),
     markupTransporte: toNum(cru.markupTransporte, 1),
   };
 };
@@ -79,12 +105,14 @@ export const calcTransporteAgregado = (item = {}, params = {}) => {
       volumeEmpoladoPorViagem: 0,
       perdaCarregamentoM3: 0,
       volumeLiquidoPorViagem: 0,
+      volumeEmpoladoTotal: 0,
       quantidadeViagens: 0,
       valorFrete: n.valorFretePorM3OuViagem,
       custoTotalFrete: 0,
       custoUnitarioTransporte: 0,
       precoUnitarioTransporte: 0,
       totalVendaTransporte: 0,
+      decomposicaoPlanilha: null,
       validacoes,
     };
   }
@@ -105,9 +133,32 @@ export const calcTransporteAgregado = (item = {}, params = {}) => {
     validacoes.push({ severidade: "erro", mensagem: "Transporte agregado: modo do frete inválido." });
   }
 
-  const volumeEmpoladoPorViagem = n.volumeInSituPorViagem * n.fatorEmpolamentoTransporte;
+  if (n.fatorEmpolamentoStatus === "rescued" || n.fatorEmpolamentoStatus === "converted") {
+    validacoes.push({ severidade: "alerta", mensagem: `Transporte agregado: ${n.fatorEmpolamentoMessage}` });
+  } else if (n.fatorEmpolamentoStatus === "invalid") {
+    validacoes.push({ severidade: "alerta", mensagem: `Transporte agregado: ${n.fatorEmpolamentoMessage}` });
+  }
+
+  // Fator do TRANSPORTE — multiplicador (ex: 1,40); só entra no acréscimo
+  // do preço (1 + emp + perda), nunca na conversão de volume.
+  const fatorTransporteMult = n.fatorEmpolamentoTransporte;
+  const fatorEmpAcresc = fatorTransporteMult - 1;
+
+  // Fator do MATERIAL — usado para todas as conversões de volume in situ
+  // → empolado (per viagem e total). Vem do contrato/item.
+  const fatorMaterialMult = n.fatorMaterial;
+
+  // Volumes derivados (sempre via fatorMaterial)
+  const volumeEmpoladoPorViagem = n.volumeInSituPorViagem * fatorMaterialMult;
   const perdaCarregamentoM3 = n.volumeInSituPorViagem * n.perdaCarregamentoPct;
   const volumeLiquidoPorViagem = n.volumeInSituPorViagem - perdaCarregamentoM3;
+
+  // Volume EMPOLADO total (base derivada).
+  // Se volumeBaseTransporte é in situ → vol_empolado_total = base × fatorMaterial.
+  // Se já é empolado, assume direto.
+  const volumeEmpoladoTotal = n.volumeBaseTipo === "empolado"
+    ? n.volumeBaseTransporte
+    : n.volumeBaseTransporte * fatorMaterialMult;
 
   if (volumeLiquidoPorViagem <= 0) {
     validacoes.push({
@@ -127,11 +178,41 @@ export const calcTransporteAgregado = (item = {}, params = {}) => {
     : 0;
 
   let custoTotalFrete = 0;
+  let custoUnitPlanilha = 0;
   if (podeCalcular) {
-    custoTotalFrete = n.modoFrete === "por_viagem"
-      ? quantidadeViagens * n.valorFretePorM3OuViagem
-      : n.volumeBaseTransporte * n.valorFretePorM3OuViagem;
+    switch (n.modoFrete) {
+      case "por_viagem":
+        custoTotalFrete = quantidadeViagens * n.valorFretePorM3OuViagem;
+        break;
+      case "por_m3_in_situ":
+        custoTotalFrete = n.volumeBaseTransporte * n.valorFretePorM3OuViagem;
+        break;
+      case "por_m3_empolado":
+        custoTotalFrete = volumeEmpoladoTotal * n.valorFretePorM3OuViagem;
+        break;
+      case "por_m3_planilha":
+        // Modelo RONMA: vol_empolado × R$/m³ × (1 + empolamento + perda).
+        custoUnitPlanilha = n.valorFretePorM3OuViagem * (1 + fatorEmpAcresc + n.perdaCarregamentoPct);
+        custoTotalFrete = volumeEmpoladoTotal * custoUnitPlanilha;
+        break;
+      default:
+        validacoes.push({ severidade: "erro", mensagem: `Modo de frete desconhecido: ${n.modoFrete}` });
+    }
   }
+
+  // Decomposição auditável (para a UI) — só para o modo planilha.
+  const decomposicaoPlanilha = n.modoFrete === "por_m3_planilha" ? {
+    parcelaBase: n.valorFretePorM3OuViagem,
+    parcelaEmpolamento: n.valorFretePorM3OuViagem * fatorEmpAcresc,
+    parcelaPerda: n.valorFretePorM3OuViagem * n.perdaCarregamentoPct,
+    somaPorM3Empolado: custoUnitPlanilha,
+    volumeEmpoladoTotal,
+    volumeBaseTransporte: n.volumeBaseTransporte,
+    volumeBaseTipo: n.volumeBaseTipo,
+    fatorMaterialMult,
+    fatorEmpAcresc,
+    perdaCarregamentoPct: n.perdaCarregamentoPct,
+  } : null;
 
   const custoUnitarioTransporte = n.volumeBaseTransporte > 0
     ? custoTotalFrete / n.volumeBaseTransporte
@@ -139,17 +220,45 @@ export const calcTransporteAgregado = (item = {}, params = {}) => {
   const precoUnitarioTransporte = custoUnitarioTransporte * n.markupTransporte;
   const totalVendaTransporte = precoUnitarioTransporte * n.volumeBaseTransporte;
 
+  // ── Validações de plausibilidade (warnings, não erros) ──
+  if (n.modoFrete === "por_viagem" && n.valorFretePorM3OuViagem > 0 && n.valorFretePorM3OuViagem < 10) {
+    validacoes.push({
+      severidade: "alerta",
+      mensagem: `Valor do frete R$ ${n.valorFretePorM3OuViagem.toFixed(2)}/viagem parece baixo demais. Frete real de caminhão truck DMT ${n.dmtKm} km é tipicamente R$ ${Math.max(30, n.dmtKm * 15)}–R$ ${n.dmtKm * 60}/viagem. Confira se não é R$/m³.`,
+    });
+  }
+  if (n.modoFrete.startsWith("por_m3") && n.valorFretePorM3OuViagem > 50) {
+    validacoes.push({
+      severidade: "alerta",
+      mensagem: `Valor do frete R$ ${n.valorFretePorM3OuViagem.toFixed(2)}/m³ parece alto demais. Frete tipicamente é R$ 1–10/m³. Confira se não é R$/viagem.`,
+    });
+  }
+  if (volumeEmpoladoPorViagem > 100) {
+    validacoes.push({
+      severidade: "alerta",
+      mensagem: `Volume empolado por viagem = ${volumeEmpoladoPorViagem.toFixed(0)} m³ é fisicamente implausível para caminhão truck (cap. típica: 12–20 m³). Confira o fator de empolamento.`,
+    });
+  }
+  if (n.modoFrete === "por_m3_planilha" && (fatorEmpAcresc + n.perdaCarregamentoPct) > 1) {
+    validacoes.push({
+      severidade: "alerta",
+      mensagem: `Soma empolamento (${(fatorEmpAcresc * 100).toFixed(0)}%) + perda (${(n.perdaCarregamentoPct * 100).toFixed(0)}%) > 100%. Custo unitário será ${(1 + fatorEmpAcresc + n.perdaCarregamentoPct).toFixed(2)}× o frete base; revise.`,
+    });
+  }
+
   return {
     ...n,
     volumeEmpoladoPorViagem,
     perdaCarregamentoM3,
     volumeLiquidoPorViagem,
+    volumeEmpoladoTotal,
     quantidadeViagens,
     valorFrete: n.valorFretePorM3OuViagem,
     custoTotalFrete,
     custoUnitarioTransporte,
     precoUnitarioTransporte,
     totalVendaTransporte,
+    decomposicaoPlanilha,
     validacoes,
   };
 };
