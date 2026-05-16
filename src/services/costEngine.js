@@ -16,6 +16,7 @@ import { gerarCalibracao, CALIBRATION_RANGES } from "../data/calibrationRanges";
 import { fmt, fmtBRL } from "../utils/format";
 import { calcVolumeComEmpolamento, normalizeFatorEmpolamento } from "../utils/empolamento";
 import { ASSUMPTIONS, getFatorSolo } from "../config/assumptions.config";
+import { getVolumeBasePorEquipamentoOuCategoria } from "../utils/volumeBase";
 
 const safePct = (val) => (val > 1 ? val / 100 : val);
 const toNum = (v, fallback = 0) => {
@@ -81,11 +82,11 @@ const matchesCategoryName = (eq = {}, ...needles) => {
   return needles.some((n) => texto.includes(n));
 };
 
-const isEscavadeira   = (eq = {}) => matchesCategoryName(eq, "escavadeira");
-const isPatrol        = (eq = {}) => matchesCategoryName(eq, "patrol", "motoniveladora");
+const isEscavadeira = (eq = {}) => matchesCategoryName(eq, "escavadeira");
+const isPatrol = (eq = {}) => matchesCategoryName(eq, "patrol", "motoniveladora", "moto niveladora", "moto-niveladora", "niveladora", "grader");
 const isTratorOuGrade = (eq = {}) => matchesCategoryName(eq, "trator", "grade");
-const isRolo          = (eq = {}) => matchesCategoryName(eq, "rolo", "compactador");
-const isPipa          = (eq = {}) => matchesCategoryName(eq, "pipa");
+const isRolo = (eq = {}) => matchesCategoryName(eq, "rolo", "compactador");
+const isPipa = (eq = {}) => matchesCategoryName(eq, "pipa");
 
 // Equipamentos cujo diesel/un usa o mesmo ciclo de viagens da escavadeira:
 // (viagens/h × m³ empolado por viagem) → m³/h da máquina; horas = volumeInSitu ÷ (m³/h × frota).
@@ -281,11 +282,11 @@ export const calcTransportProductivity = (dmt, params, baseVol = 14) => {
 // cada equipamento), preservando o comportamento anterior.
 export const calcIndiretoModel = (params) => {
   const componentes = {
-    admin:        toNum(params?.indiretos_admin_mensal, 0),
-    alojamento:   toNum(params?.indiretos_alojamento_mensal, 0),
-    alimentacao:  toNum(params?.indiretos_alimentacao_mensal, 0),
-    vigilancia:   toNum(params?.indiretos_vigilancia_mensal, 0),
-    outros:       toNum(params?.indiretos_outros_mensal, 0),
+    admin: toNum(params?.indiretos_admin_mensal, 0),
+    alojamento: toNum(params?.indiretos_alojamento_mensal, 0),
+    alimentacao: toNum(params?.indiretos_alimentacao_mensal, 0),
+    vigilancia: toNum(params?.indiretos_vigilancia_mensal, 0),
+    outros: toNum(params?.indiretos_outros_mensal, 0),
   };
   const total =
     componentes.admin + componentes.alojamento + componentes.alimentacao +
@@ -325,8 +326,7 @@ export const calcIndiretoModel = (params) => {
 const TIPOS_NAO_INDIRETOS = new Set(["apontador", "administrativo"]);
 const TIPOS_INDIRETOS_TOTAL_INTEIRO = new Set(["alojamento"]);
 
-export const roundIndiretoLineTotal = (tipo, total) =>
-  TIPOS_INDIRETOS_TOTAL_INTEIRO.has(tipo) ? Math.round(total) : total;
+export const roundIndiretoLineTotal = (tipo, total) => total;
 
 // ── Indireto rateado por m³ por pessoa indireta ──
 // Modelo planilha (CUSTOS EQUIPAMENTOS J22→J23→J24):
@@ -366,7 +366,7 @@ export const calcIndiretoRateadoPorM3 = (
   }
 
   // Filtra defensivamente tipos descontinuados (apontador/administrativo).
-  const validos  = indirectPersonnel.filter((p) => p?.tipo && !TIPOS_NAO_INDIRETOS.has(p.tipo));
+  const validos = indirectPersonnel.filter((p) => p?.tipo && !TIPOS_NAO_INDIRETOS.has(p.tipo));
   const ignorados = indirectPersonnel
     .filter((p) => p?.tipo && TIPOS_NAO_INDIRETOS.has(p.tipo))
     .map((p) => ({ tipo: p.tipo, motivo: "tipo migrado para mão de obra direta" }));
@@ -384,7 +384,7 @@ export const calcIndiretoRateadoPorM3 = (
   const tabela = params?.pessoas_indiretas
     || ASSUMPTIONS.pessoasIndiretas.porTipo;
   const valorDia = toNum(params?.alimentacao_valor_dia, ASSUMPTIONS.pessoasIndiretas.alimentacao.valorDia);
-  const diasMes  = toNum(params?.alimentacao_dias_mes,  ASSUMPTIONS.pessoasIndiretas.alimentacao.diasMes);
+  const diasMes = toNum(params?.alimentacao_dias_mes, ASSUMPTIONS.pessoasIndiretas.alimentacao.diasMes);
   const horasRef = toNum(params?.alimentacao_horas_ref, ASSUMPTIONS.pessoasIndiretas.alimentacao.horasRef);
   const horas = toNum(horasProjeto, 0);
 
@@ -459,12 +459,12 @@ export const calcEquipmentHourlyCost = (eq, params, soilCategory, indiretoModel 
     : 1.00;
   const percManutencao = percManutBase * ajusteSolo;
 
-  const dieselPrice  = params.dieselPrice;
-  const consumo      = eq.consumption;
-  const fatorEnc     = params.fator_encargos;
-  const horasMes     = params.hoursPerMonth;
+  const dieselPrice = params.dieselPrice;
+  const consumo = eq.consumption;
+  const fatorEnc = params.fator_encargos;
+  const horasMes = params.hoursPerMonth;
   const modoIndireto = indiretoModel?.modo === "absoluto" ? "absoluto" : "percentual";
-  const percIndir    = modoIndireto === "absoluto"
+  const percIndir = modoIndireto === "absoluto"
     ? 0
     : safePct(params.percentual_indiretos || ASSUMPTIONS.indireto.percentualLegadoSobreParcial);
 
@@ -489,12 +489,12 @@ export const calcEquipmentHourlyCost = (eq, params, soilCategory, indiretoModel 
     ? "direto"
     : (moPorCategoria > 0 ? "tabela" : "legado");
   const operador_hora =
-    operadorFonte === "direto"  ? moDireta :
-    operadorFonte === "tabela"  ? moPorCategoria :
+    operadorFonte === "direto" ? moDireta :
+      operadorFonte === "tabela" ? moPorCategoria :
     /* legado */                  (salario * fatorEnc) / horasMes;
 
-  const parcial         = diesel_hora + manutencao_hora + operador_hora;
-  const indiretos_hora  = parcial * percIndir;
+  const parcial = diesel_hora + manutencao_hora + operador_hora;
+  const indiretos_hora = parcial * percIndir;
   const custo_total_hora = parcial + indiretos_hora;
   // Custo "direto" do equipamento (diesel + manut + MO) — sem indireto.
   // É o que o modelo novo (5.5) usa; indireto vai por rateio no item.
@@ -519,16 +519,16 @@ export const calcEquipmentHourlyCost = (eq, params, soilCategory, indiretoModel 
       unidade: "R$/h",
       formula: manutencaoUsaDireta
         ? (ajusteSolo > 1
-            ? "custo_h_manutencao × ajuste de solo (3ª)"
-            : "custo_h_manutencao do equipamento (planilha)")
+          ? "custo_h_manutencao × ajuste de solo (3ª)"
+          : "custo_h_manutencao do equipamento (planilha)")
         : (ajusteSolo > 1
-            ? "diesel × % manutenção × ajuste de solo (3ª)"
-            : "diesel × % manutenção"),
+          ? "diesel × % manutenção × ajuste de solo (3ª)"
+          : "diesel × % manutenção"),
       formulaExec: manutencaoUsaDireta
         ? fmtAjusteSolo(`${fmtBRLh(manutencaoDireta)}`, fmtBRLh(manutencao_hora))
         : (ajusteSolo > 1
-            ? `${fmtBRLh(diesel_hora)} × ${fmtPct(percManutBase)} × ${fmt(ajusteSolo, 2)} = ${fmtBRLh(manutencao_hora)}`
-            : `${fmtBRLh(diesel_hora)} × ${fmtPct(percManutBase)} = ${fmtBRLh(manutencao_hora)}`),
+          ? `${fmtBRLh(diesel_hora)} × ${fmtPct(percManutBase)} × ${fmt(ajusteSolo, 2)} = ${fmtBRLh(manutencao_hora)}`
+          : `${fmtBRLh(diesel_hora)} × ${fmtPct(percManutBase)} = ${fmtBRLh(manutencao_hora)}`),
       origem: manutencaoUsaDireta ? "Equipamento (R$/h direto)" : "Parâmetros",
       status: manutencaoUsaDireta ? "calculado" : "alerta",
     }),
@@ -537,16 +537,16 @@ export const calcEquipmentHourlyCost = (eq, params, soilCategory, indiretoModel 
       valor: operador_hora,
       unidade: "R$/h",
       formula:
-        operadorFonte === "direto"  ? "custo_h_operador do equipamento" :
-        operadorFonte === "tabela"  ? `tabela R$/h por categoria (${eq.categoria_operador})` :
+        operadorFonte === "direto" ? "custo_h_operador do equipamento" :
+          operadorFonte === "tabela" ? `tabela R$/h por categoria (${eq.categoria_operador})` :
         /* legado */                  "(salário mensal × fator encargos) ÷ horas/mês",
       formulaExec:
-        operadorFonte === "direto"  ? `${fmtBRLh(operador_hora)}` :
-        operadorFonte === "tabela"  ? `tabela["${eq.categoria_operador}"] = ${fmtBRLh(operador_hora)}` :
+        operadorFonte === "direto" ? `${fmtBRLh(operador_hora)}` :
+          operadorFonte === "tabela" ? `tabela["${eq.categoria_operador}"] = ${fmtBRLh(operador_hora)}` :
         /* legado */                  `(${fmtBRL(salario)} × ${fmt(fatorEnc, 2)}) ÷ ${fmt(horasMes, 0)} h = ${fmtBRLh(operador_hora)}`,
       origem:
-        operadorFonte === "direto"  ? "Equipamento (R$/h direto)" :
-        operadorFonte === "tabela"  ? "Parâmetros (tabela por categoria)" :
+        operadorFonte === "direto" ? "Equipamento (R$/h direto)" :
+          operadorFonte === "tabela" ? "Parâmetros (tabela por categoria)" :
         /* legado */                  "Equipamento + Parâmetros (legado)",
       status: operadorFonte === "legado" ? "alerta" : "calculado",
     }),
@@ -639,9 +639,9 @@ const buildEquipamentosAuditoria = (item, equipmentMap, params, soil, indiretoMo
 const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], context = {}) => {
   const { volumeInSitu, fatorEmpolamento, volumeEmpolado } = getItemVolumes(item, params);
 
-  const prazoMeses   = toNum(item.prazoMeses,   toNum(params?.prazo_meses,   1));
+  const prazoMeses = toNum(item.prazoMeses, toNum(params?.prazo_meses, 1));
   const diasUteisMes = toNum(item.diasUteisMes, toNum(params?.dias_uteis_mes, 22));
-  const horasDia     = toNum(item.horasDia,     toNum(params?.horas_dia,     9));
+  const horasDia = toNum(item.horasDia, toNum(params?.horas_dia, 9));
   const horasProjetoCalculadas = diasUteisMes * horasDia * prazoMeses;
   const horasProjetoContexto = toNum(context?.horasProjeto, 0);
   const horasProjeto = horasProjetoContexto > 0 ? horasProjetoContexto : horasProjetoCalculadas;
@@ -663,7 +663,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 
   const producaoConjuntoHora = linhasParaProducao.reduce((s, l) => {
     const eq = equipmentMap[l.equipmentId];
-    const q  = toNum(l.quantity ?? l.qty, 0);
+    const q = toNum(l.quantity ?? l.qty, 0);
     const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
     return s + prod * q;
   }, 0);
@@ -700,9 +700,9 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 
   let custo_unitario = 0;
   let preco_unitario = 0;
-  let dieselR$M3_total   = 0;
-  let manutR$M3_total    = 0;
-  let moR$M3_total       = 0;
+  let dieselR$M3_total = 0;
+  let manutR$M3_total = 0;
+  let moR$M3_total = 0;
   let indiretoR$M3_total = 0;
   const detalheEquipamentos = [];
   let totalCustoEquipamentosObra = 0;
@@ -716,8 +716,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 
   for (const line of equipmentLines) {
     const qty = toNum(line.quantity ?? line.qty, 0);
-    const eq  = equipmentMap[line.equipmentId];
-    const c   = calcEquipmentHourlyCost(eq, params, item.soilCategory || "1ª");
+    const eq = equipmentMap[line.equipmentId];
+    const c = calcEquipmentHourlyCost(eq, params, item.soilCategory || "1ª");
 
     // Horas-máquina vêm SEMPRE de volumeInSitu ÷ Σ(baseProductivity × qty).
     // Não aplicar eficiência, fator solo, fator logística nem ciclo de viagens
@@ -725,11 +725,11 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     // O cálculo de ciclo (viagensPorHora) é preservado apenas como metadata
     // de auditoria — não substitui mais as horas canônicas.
     const refDiesel = getVolumeRefDieselPorCategoria(eq?.category, params, volumes);
-    const refManut  = getVolumeRefManutencaoPorCategoria(eq?.category, params, volumes);
-    const refMO     = getVolumeRefMOPorCategoria(eq?.category, params, volumes);
+    const refManut = getVolumeRefManutencaoPorCategoria(eq?.category, params, volumes);
+    const refMO = getVolumeRefMOPorCategoria(eq?.category, params, volumes);
     const totalDieselEq = c.diesel_hora * horasMaquinaNecessarias * qty;
-    const totalManutEq  = c.manutencao_hora * horasProjeto * qty;
-    const totalMOEq     = c.operador_hora   * horasProjeto * qty;
+    const totalManutEq = c.manutencao_hora * horasProjeto * qty;
+    const totalMOEq = c.operador_hora * horasProjeto * qty;
     const totalIndiretoEq = indiretoR$M3PorPessoa * volumeInSitu;
 
     // Metadata informativa do ciclo de viagens (não influencia mais o cálculo).
@@ -740,29 +740,30 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       fallbackHoras: horasMaquinaNecessarias,
     });
 
-    const dieselEqM3   = refDiesel.valor   > 0 ? totalDieselEq   / refDiesel.valor   : 0;
-    const manutEqM3    = refManut.valor    > 0 ? totalManutEq    / refManut.valor    : 0;
-    const moEqM3       = refMO.valor       > 0 ? totalMOEq       / refMO.valor       : 0;
+    const dieselEqM3 = refDiesel.valor > 0 ? totalDieselEq / refDiesel.valor : 0;
+    const manutEqM3 = refManut.valor > 0 ? totalManutEq / refManut.valor : 0;
+    const moEqM3 = refMO.valor > 0 ? totalMOEq / refMO.valor : 0;
     const indiretoEqM3 = refIndireto.valor > 0 ? totalIndiretoEq / refIndireto.valor : 0;
-    const custoEqM3    = dieselEqM3 + manutEqM3 + moEqM3 + indiretoEqM3;
+    const custoEqM3 = dieselEqM3 + manutEqM3 + moEqM3 + indiretoEqM3;
 
     const markupEq = getMarkupPorCategoria(params, eq.category);
     const precoEqM3 = custoEqM3 * markupEq;
-    const executor = isExecutor(eq);
-    const volumeTotalizacao = !executor && volumeAuxiliarInSitu > 0
-      ? volumeAuxiliarInSitu
-      : volumeInSitu;
-    const volumeTotalizacaoTipo = !executor && volumeAuxiliarInSitu > 0
-      ? "auxiliar_in_situ"
-      : "in_situ";
-    const totalCustoMaquinaObra = custoEqM3 * volumeTotalizacao;
-    const totalMaquinaObra = precoEqM3 * volumeTotalizacao;
 
-    custo_unitario     += custoEqM3;
-    preco_unitario     += precoEqM3;
-    dieselR$M3_total   += dieselEqM3;
-    manutR$M3_total    += manutEqM3;
-    moR$M3_total       += moEqM3;
+    const volumeBaseTotal = getVolumeBasePorEquipamentoOuCategoria({
+      eq,
+      item,
+      params,
+      volumes,
+    });
+
+    const totalCustoMaquinaObra = custoEqM3 * volumeBaseTotal.valor;
+    const totalMaquinaObra = precoEqM3 * volumeBaseTotal.valor;
+
+    custo_unitario += custoEqM3;
+    preco_unitario += precoEqM3;
+    dieselR$M3_total += dieselEqM3;
+    manutR$M3_total += manutEqM3;
+    moR$M3_total += moEqM3;
     indiretoR$M3_total += indiretoEqM3;
     totalCustoEquipamentosObra += totalCustoMaquinaObra;
     totalPrecoEquipamentosObra += totalMaquinaObra;
@@ -771,7 +772,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       equipmentId: line.equipmentId,
       equipamento: eq.name,
       categoria: eq.category,
-      is_executor: executor,
+      is_executor: isExecutor(eq),
       qty,
       viagensPorHora: getViagensPorHora(eq),
       baseProductivity: toNum(eq?.baseProductivity ?? eq?.productivity, 0),
@@ -789,33 +790,52 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       horas_mo: horasProjeto,
 
       // totais R$
-      total_diesel:    totalDieselEq,
+      total_diesel: totalDieselEq,
       total_manutencao: totalManutEq,
-      total_mo:        totalMOEq,
-      total_indireto:  totalIndiretoEq,
+      total_mo: totalMOEq,
+      total_indireto: totalIndiretoEq,
 
       // volume de referência por parcela (com tipo)
-      volume_ref_diesel:           refDiesel.valor,
-      volume_ref_diesel_tipo:      refDiesel.tipo,
-      volume_ref_manutencao:       refManut.valor,
-      volume_ref_manutencao_tipo:  refManut.tipo,
-      volume_ref_mo:               refMO.valor,
-      volume_ref_mo_tipo:          refMO.tipo,
-      volume_ref_indireto:         refIndireto.valor,
-      volume_ref_indireto_tipo:    refIndireto.tipo,
+      volume_ref_diesel: refDiesel.valor,
+      volume_ref_diesel_tipo: refDiesel.tipo,
+      volume_ref_manutencao: refManut.valor,
+      volume_ref_manutencao_tipo: refManut.tipo,
+      volume_ref_mo: refMO.valor,
+      volume_ref_mo_tipo: refMO.tipo,
+      volume_ref_indireto: refIndireto.valor,
+      volume_ref_indireto_tipo: refIndireto.tipo,
 
       // R$/m³
-      diesel_R$_m3:    dieselEqM3,
+      diesel_R$_m3: dieselEqM3,
       manutencao_R$_m3: manutEqM3,
-      mo_R$_m3:        moEqM3,
-      indireto_R$_m3:  indiretoEqM3,
-      custo_R$_m3:     custoEqM3,
-      markup:          markupEq,
-      preco_R$_m3:     precoEqM3,
-      volume_totalizacao: volumeTotalizacao,
-      volume_totalizacao_tipo: volumeTotalizacaoTipo,
+      mo_R$_m3: moEqM3,
+      indireto_R$_m3: indiretoEqM3,
+      custo_R$_m3: custoEqM3,
+      markup: markupEq,
+      preco_R$_m3: precoEqM3,
+      volume_totalizacao: volumeBaseTotal.valor,
+      volume_totalizacao_tipo: volumeBaseTotal.tipo,
+      total_custo_maquina_obra_R$: totalCustoMaquinaObra,
+      volume_base_total: volumeBaseTotal.valor,
+      volume_base_tipo: volumeBaseTotal.tipo,
+      volume_base_origem: volumeBaseTotal.origem,
+      volume_base_alerta: volumeBaseTotal.alerta,
+
+      volume_aterro_in_situ: volumeBaseTotal.volumeAterroInSitu,
+      fator_empolamento_aterro: volumeBaseTotal.fatorEmpolamentoAterro,
+      volume_aterro_empolado: volumeBaseTotal.volumeAterroEmpolado,
+
       total_custo_maquina_obra_R$: totalCustoMaquinaObra,
       total_maquina_obra_R$: totalMaquinaObra,
+
+      // Campos de auditoria de precisão — sempre numéricos crus
+      // (sem toFixed/Math.round/fmt). Quem consumir esses campos não pode
+      // recalcular preço/total a partir de valores arredondados.
+      custo_R$_m3_preciso: custoEqM3,
+      markup_preciso: markupEq,
+      preco_R$_m3_preciso: precoEqM3,
+      volume_base_total_preciso: volumeBaseTotal.valor,
+      total_maquina_obra_preciso_R$: totalMaquinaObra,
 
       // Compat retro (consumido por algumas telas)
       denominador_rateio: refDiesel.valor,
@@ -825,14 +845,14 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   }
 
   const markup_efetivo = custo_unitario > 0 ? preco_unitario / custo_unitario : 0;
-  const quantidade     = toNum(item.quantity, volumeInSitu);
-  const total_item     = totalPrecoEquipamentosObra > 0
+  const quantidade = toNum(item.quantity, volumeInSitu);
+  const total_item = totalPrecoEquipamentosObra > 0
     ? totalPrecoEquipamentosObra
     : preco_unitario * quantidade;
   const total_custo_item = totalCustoEquipamentosObra > 0
     ? totalCustoEquipamentosObra
     : custo_unitario * quantidade;
-  const lucro_unitario   = preco_unitario - custo_unitario;
+  const lucro_unitario = preco_unitario - custo_unitario;
   const margem_percentual = preco_unitario > 0 ? (lucro_unitario / preco_unitario) * 100 : 0;
 
   const auditoria = {
@@ -858,12 +878,12 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       indiretoBreakdown,
     },
     parcelasPorM3: {
-      diesel:    dieselR$M3_total,
+      diesel: dieselR$M3_total,
       manutencao: manutR$M3_total,
-      mo:        moR$M3_total,
-      indireto:  indiretoR$M3_total,
-      custo:     custo_unitario,
-      preco:     preco_unitario,
+      mo: moR$M3_total,
+      indireto: indiretoR$M3_total,
+      custo: custo_unitario,
+      preco: preco_unitario,
       markupEfetivo: markup_efetivo,
     },
     equipamentos: detalheEquipamentos,
@@ -872,6 +892,14 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   if (volumeInSitu <= 0) auditoria.validacoes.push({ severidade: "erro", mensagem: "volumeInSitu deve ser > 0." });
   if (producaoConjuntoHora <= 0) auditoria.validacoes.push({ severidade: "erro", mensagem: "Produção conjunta da frota = 0." });
   if (indirectPersonnelOrcamento.length === 0) auditoria.validacoes.push({ severidade: "alerta", mensagem: "Aloque pelo menos uma pessoa indireta para que o overhead seja contabilizado." });
+  detalheEquipamentos
+    .filter(e => e.volume_base_alerta)
+    .forEach(e => {
+      auditoria.validacoes.push({
+        severidade: "alerta",
+        mensagem: `${e.equipamento}: ${e.volume_base_alerta}`,
+      });
+    });
   if (indiretoBreakdown.ignorados && indiretoBreakdown.ignorados.length > 0) {
     auditoria.validacoes.push({
       severidade: "info",
@@ -956,7 +984,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
 
   // VB (Verba Bruta): cálculo direto sem produtividade, eficiência ou markup
   if (item.unit === "VB") {
-    const valor      = toNum(item.manualCost, 0);
+    const valor = toNum(item.manualCost, 0);
     const quantidade = item.quantity || 1;
     const total_item = valor * quantidade;
 
@@ -1026,7 +1054,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
   }
 
   let status = "ok";
-  const soil     = item.soilCategory || "1ª";
+  const soil = item.soilCategory || "1ª";
   const category = item.category || "";
 
   // 1. Produtividade (informada pelo usuário; nunca alterada)
@@ -1038,7 +1066,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
 
   const fatorSolo = getFatorSolo(soil);
 
-  const eficiencia     = toNum(item.terrainFactor, toNum(item.efficiency, 1));
+  const eficiencia = toNum(item.terrainFactor, toNum(item.efficiency, 1));
   const fatorLogistica = toNum(item.fatorLogistica, 1.0);
 
   const produtividade_calculo = produtividade_informada;
@@ -1064,11 +1092,11 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
   );
   let sumDiesel = 0, sumManut = 0, sumOp = 0, sumIndiretoEq = 0, totalEquipDiretoHour = 0;
   equipamentosAuditoria.forEach((e) => {
-    sumDiesel             += e.diesel.valorTotal;
-    sumManut              += e.manutencao.valorTotal;
-    sumOp                 += e.operador.valorTotal;
-    sumIndiretoEq         += e.indiretos.valorTotal; // 0 em modo absoluto
-    totalEquipDiretoHour  += e.diesel.valorTotal + e.manutencao.valorTotal + e.operador.valorTotal;
+    sumDiesel += e.diesel.valorTotal;
+    sumManut += e.manutencao.valorTotal;
+    sumOp += e.operador.valorTotal;
+    sumIndiretoEq += e.indiretos.valorTotal; // 0 em modo absoluto
+    totalEquipDiretoHour += e.diesel.valorTotal + e.manutencao.valorTotal + e.operador.valorTotal;
   });
 
   const manualCost = toNum(item.manualCost, 0);
@@ -1213,8 +1241,8 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
 
   // Se produtividade real é inválida, expor auditoria parcial e bloquear cálculo
   if (status === "produtividade_invalida") {
-    const quantidade  = item.quantity || 1;
-    const fatorBase   = toNum(item.fatorBase, toNum(params?.fatorBase, ASSUMPTIONS.markup.fatorBase));
+    const quantidade = item.quantity || 1;
+    const fatorBase = toNum(item.fatorBase, toNum(params?.fatorBase, ASSUMPTIONS.markup.fatorBase));
     const ajusteFinal = toNum(item.ajusteFinal, toNum(params?.ajusteFinal, ASSUMPTIONS.markup.ajusteFinal));
 
     return {
@@ -1298,7 +1326,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
   // contaminar o rateio de diesel/manutenção/MO em horas-máquina.
   const producaoConjuntoBase = executorInfoLegado.linhasParaProducao.reduce((s, l) => {
     const eq = equipmentMap[l.equipmentId];
-    const q  = toNum(l?.quantity ?? l?.qty, 0);
+    const q = toNum(l?.quantity ?? l?.qty, 0);
     const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
     return s + prod * q;
   }, 0);
@@ -1356,9 +1384,9 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
     };
   });
   const decompUnitDiesel = equipamentosDecomp.reduce((s, e) => s + e.diesel, 0);
-  const decompUnitManut  = equipamentosDecomp.reduce((s, e) => s + e.manutencao, 0);
-  const decompUnitOp     = equipamentosDecomp.reduce((s, e) => s + e.maoDeObra, 0);
-  const decompUnitIndir  = equipamentosDecomp.reduce((s, e) => s + e.indiretos, 0);
+  const decompUnitManut = equipamentosDecomp.reduce((s, e) => s + e.manutencao, 0);
+  const decompUnitOp = equipamentosDecomp.reduce((s, e) => s + e.maoDeObra, 0);
+  const decompUnitIndir = equipamentosDecomp.reduce((s, e) => s + e.indiretos, 0);
   const decompUnitManual = volumes.volumeInSitu > 0
     ? (manualCost * horasMaquinaRateio) / volumes.volumeInSitu
     : 0;
@@ -1367,6 +1395,12 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
   const precoUnitEquipamentos = equipamentosDecomp.reduce((s, e) => s + e.preco, 0);
   equipamentosDecomp.forEach((decomp, index) => {
     if (!equipamentosAuditoria[index]) return;
+    const volBase = getVolumeBasePorEquipamentoOuCategoria({
+      eq: equipamentosAuditoria[index],
+      item,
+      params,
+      volumes,
+    });
     Object.assign(equipamentosAuditoria[index], {
       diesel_R$_m3: decomp.diesel,
       manutencao_R$_m3: decomp.manutencao,
@@ -1375,7 +1409,15 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
       custo_R$_m3: decomp.custo,
       markup: decomp.markup,
       preco_R$_m3: decomp.preco,
-      total_maquina_obra_R$: decomp.preco * volumes.volumeInSitu,
+      volume_base_total: volBase.valor,
+      volume_base_tipo: volBase.tipo,
+      volume_base_origem: volBase.origem,
+      volume_base_alerta: volBase.alerta,
+      volume_aterro_in_situ: volBase.volumeAterroInSitu,
+      fator_empolamento_aterro: volBase.fatorEmpolamentoAterro,
+      volume_aterro_empolado: volBase.volumeAterroEmpolado,
+      total_custo_maquina_obra_R$: decomp.custo * volBase.valor,
+      total_maquina_obra_R$: decomp.preco * volBase.valor,
     });
   });
   const rateioExec = "escavadeira/trator/grade/rolo/pipa ÷ m³ empolado; patrol e demais ÷ m³ in situ";
@@ -1518,12 +1560,12 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
   const quantidade = item.quantity || 1;
   const total_item = preco_unitario * quantidade;
 
-  const isSimpleUnit = ["m²","m³","M²","M³"].includes(item.unit);
+  const isSimpleUnit = ["m²", "m³", "M²", "M³"].includes(item.unit);
   if (isSimpleUnit && preco_unitario > 1000) {
     status = "erro_corrigido (preço inflado)";
   }
 
-  const lucro_unitario   = preco_unitario - custo_unitario;
+  const lucro_unitario = preco_unitario - custo_unitario;
   const margem_percentual = preco_unitario > 0 ? (lucro_unitario / preco_unitario) * 100 : 0;
 
   const resultadoAuditoria = [
@@ -1580,7 +1622,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
       mensagem: `Indireto unitário muito baixo (${fmtBRL(decompUnitIndir)}/${unit}). Reveja produtividade real ou indiretos mensais.`,
     });
   }
-  if (produtividade_utilizada > 1500 && !["M²","M2"].includes(item.unit)) {
+  if (produtividade_utilizada > 1500 && !["M²", "M2"].includes(item.unit)) {
     validacoes.push({
       severidade: "alerta",
       mensagem: `Produtividade real possivelmente irreal (${fmt(produtividade_utilizada, 2)} ${unit}/h). Reveja produtividade base e eficiência.`,
@@ -1600,7 +1642,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
   }
 
   const hasEquipment = item.equipmentLines && item.equipmentLines.length > 0;
-  const refCost  = toNum(item.referenceUnitCost, null);
+  const refCost = toNum(item.referenceUnitCost, null);
   const refPrice = toNum(item.referenceUnitPrice, null);
 
   // 7. Calibração final
@@ -1618,7 +1660,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
 
   // 8. Divergência vs planilha
   const difPct = (calc, ref) => (ref && ref !== 0 ? Math.abs((calc - ref) / ref) * 100 : null);
-  const diffCostPct  = refCost  != null ? difPct(custo_unitario, refCost)  : null;
+  const diffCostPct = refCost != null ? difPct(custo_unitario, refCost) : null;
   const diffPricePct = refPrice != null ? difPct(preco_unitario, refPrice) : null;
   const diverge = (v) => (v != null && v > 1.0);
   const divergencia = (diverge(diffCostPct) || diverge(diffPricePct))
@@ -1627,8 +1669,8 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
 
   return {
     // retrocompatibilidade
-    unitCost:   custo_unitario,
-    totalCost:  custo_unitario * quantidade,
+    unitCost: custo_unitario,
+    totalCost: custo_unitario * quantidade,
     totalPrice: total_item,
 
     produtividade_informada,
@@ -1642,7 +1684,7 @@ export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [],
     markup_aplicado: markup,
 
     totalHourlyCost: custo_total_hora,
-    preco_minimo:    custo_unitario * 1.10,
+    preco_minimo: custo_unitario * 1.10,
     lucro_unitario,
     margem_percentual,
     detalhamento: {
@@ -1758,19 +1800,19 @@ export const calcQuotationTotals = (
     }),
   }));
 
-  const subtotalCost  = itemsCalc.reduce(
+  const subtotalCost = itemsCalc.reduce(
     (s, it) => s + toNum(it.totalCost, it.custo_unitario * (it.quantity || 1)),
     0,
   );
   const subtotalPrice = itemsCalc.reduce((s, it) => s + it.total_item, 0);
 
-  const indirect   = subtotalPrice * ((adminPct + mobilPct + riskPct) / 100);
-  const bdiVal     = (subtotalPrice + indirect) * (bdi / 100);
+  const indirect = subtotalPrice * ((adminPct + mobilPct + riskPct) / 100);
+  const bdiVal = (subtotalPrice + indirect) * (bdi / 100);
   const precoFinal = subtotalPrice + indirect + bdiVal;
 
   const itensComReferencia = itemsCalc.filter(it => it.calibracao?.temReferencia);
-  const itensDentroFaixa   = itensComReferencia.filter(it => it.calibracao?.status === "ok");
-  const itensForaFaixa     = itensComReferencia.filter(it => it.calibracao?.status !== "ok");
+  const itensDentroFaixa = itensComReferencia.filter(it => it.calibracao?.status === "ok");
+  const itensForaFaixa = itensComReferencia.filter(it => it.calibracao?.status !== "ok");
 
   const calibracaoGlobal = {
     total: itensComReferencia.length,
@@ -1791,11 +1833,11 @@ export const calcQuotationTotals = (
   };
 
   // ── Lucro estimado, imposto sobre lucro, lucro líquido, margem líquida ──
-  const lucroEstimado     = subtotalPrice - subtotalCost;
-  const aliquotaIR        = toNum(params?.aliquota_imposto_lucro, ASSUMPTIONS.comercial.percentualImposto);
+  const lucroEstimado = subtotalPrice - subtotalCost;
+  const aliquotaIR = toNum(params?.aliquota_imposto_lucro, ASSUMPTIONS.comercial.percentualImposto);
   const impostoSobreLucro = lucroEstimado > 0 ? lucroEstimado * aliquotaIR : 0;
-  const lucroLiquido      = lucroEstimado - impostoSobreLucro;
-  const margemLiquida     = subtotalPrice > 0 ? (lucroLiquido / subtotalPrice) * 100 : 0;
+  const lucroLiquido = lucroEstimado - impostoSobreLucro;
+  const margemLiquida = subtotalPrice > 0 ? (lucroLiquido / subtotalPrice) * 100 : 0;
 
   return {
     itemsCalc,

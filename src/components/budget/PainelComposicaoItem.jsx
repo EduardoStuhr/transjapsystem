@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { SS } from "../../styles/spreadsheetTheme";
-import { fmt, fmtBRL } from "../../utils/format";
+import { fmt, fmtBRL, fmtBRLPreciso } from "../../utils/format";
 
 // ──────────────────────────────────────────────────────────────────
 // <PainelComposicaoItem> — modal de composição de preço de UM item.
@@ -32,6 +32,15 @@ const SEVERIDADE = {
 };
 
 const VOLUME_TIPO_LABEL = {
+  in_situ: "in situ",
+  empolado: "empolado",
+  aterro_in_situ: "aterro in situ",
+  aterro_empolado: "aterro empolado",
+  transporte: "transporte",
+  in_situ_fallback: "in situ fallback",
+};
+
+const DEPRECATED_VOLUME_TIPO_LABEL = {
   in_situ:  "in situ",
   empolado: "empolado",
 };
@@ -310,10 +319,15 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
   const usaFallbackManut = !(eq.custoManutencaoDireto > 0);
   const prodZero = !(eq.baseProductivity > 0);
   const volumeInSitu = ctx.volumeInSitu ?? 0;
-  const volumeTotalizacao = eq.volume_totalizacao ?? volumeInSitu;
-  const volumeTotalizacaoLabel = eq.volume_totalizacao_tipo === "auxiliar_in_situ"
-    ? "auxiliar in situ"
-    : "in situ";
+
+  // Valores precisos (sem arredondamento) — vindos do costEngine. Fórmulas
+  // auditáveis precisam usar esses números crus para bater com a planilha.
+  const custoPreciso = eq.custo_R$_m3_preciso ?? eq.custo_R$_m3 ?? 0;
+  const markupPreciso = eq.markup_preciso ?? eq.markup ?? 0;
+  const precoPreciso = eq.preco_R$_m3_preciso ?? eq.preco_R$_m3 ?? 0;
+  const volumeTotalizacao = eq.volume_base_total_preciso ?? eq.volume_base_total ?? eq.volume_totalizacao ?? volumeInSitu;
+  const totalMaquinaPreciso = eq.total_maquina_obra_preciso_R$ ?? eq.total_maquina_obra_R$ ?? 0;
+  const volumeTotalizacaoLabel = tipoLabel(eq.volume_base_tipo || eq.volume_totalizacao_tipo || "in_situ");
 
   return (
     <div
@@ -465,13 +479,13 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
             border: `1px solid ${SS.border}`,
           }}
         >
-          <KpiCell label={`Custo unitário desta máquina`}        valor={`${fmtBRL(eq.custo_R$_m3)} R$/${unit}`} />
-          <KpiCell label={`Markup (${eq.categoria})`}            valor={`× ${fmt(eq.markup, 2)}`} kind="key" />
-          <KpiCell label={`Preço unitário desta máquina`}        valor={`${fmtBRL(eq.preco_R$_m3)} R$/${unit}`} kind="ref" emphasize />
+          <KpiCell label={`Custo unitário desta máquina`}        valor={`${fmtBRL(custoPreciso)} R$/${unit}`} />
+          <KpiCell label={`Markup (${eq.categoria})`}            valor={`× ${fmt(markupPreciso, 2)}`} kind="key" />
+          <KpiCell label={`Preço unitário desta máquina`}        valor={`${fmtBRL(precoPreciso)} R$/${unit}`} kind="ref" emphasize />
           <KpiCell
             label="Total desta máquina na obra"
-            valor={fmtBRL(eq.total_maquina_obra_R$)}
-            hint={`= ${fmtBRL(eq.preco_R$_m3)} × ${fmt(volumeTotalizacao, 2)} ${unit} ${volumeTotalizacaoLabel}`}
+            valor={fmtBRL(totalMaquinaPreciso)}
+            hint={`= ${fmtBRLPreciso(precoPreciso, 8)} × ${fmt(volumeTotalizacao, 2)} ${unit} ${volumeTotalizacaoLabel}`}
             kind="ref"
             emphasize
           />

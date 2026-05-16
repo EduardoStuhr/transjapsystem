@@ -8,8 +8,16 @@ import EquipmentSelector from "./EquipmentSelector";
 import PainelComposicaoItem from "./PainelComposicaoItem";
 import { calcItemCost } from "../../services/costEngine";
 import { calcVolumeComEmpolamento, normalizeFatorEmpolamento, resolveFatorEmpolamento } from "../../utils/empolamento";
+import { getVolumesAterro } from "../../utils/volumeBase";
 import { fmt, fmtBRL, uid } from "../../utils/format";
 import S from "../../styles/tokens";
+
+const toNumber = (v, fallback = 0) => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : fallback;
+  if (!v) return fallback;
+  const n = parseFloat(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
+};
 
 // ── Estilos do Painel de Calibragem ──
 const calibrationStyles = {
@@ -59,11 +67,11 @@ function CalibrationBar({ valor, faixa, label, cor }) {
   const extendedMin = faixa.min - range * 0.5;
   const extendedMax = faixa.max + range * 0.5;
   const totalRange = extendedMax - extendedMin;
-  
+
   const faixaLeft = ((faixa.min - extendedMin) / totalRange) * 100;
   const faixaWidth = (range / totalRange) * 100;
   const markerPos = Math.max(0, Math.min(100, ((valor - extendedMin) / totalRange) * 100));
-  
+
   const dentro = valor >= faixa.min && valor <= faixa.max;
 
   return (
@@ -114,36 +122,23 @@ export default function BudgetItem({
   serviceOptions,
   params,
   indirectPersonnel = [],
-  numOperadoresFrotaOrcamento = 0,
   volumeEmpoladoObra,
   totalHorasProjeto,
   onUpdate,
   onDelete,
 }) {
   const [panelOpen, setPanelOpen] = useState(false);
-  const result = calcItemCost(
-    item,
-    equipmentMap,
-    params,
-    indirectPersonnel,
-    {
-      numOperadoresFrota: numOperadoresFrotaOrcamento,
-      horasProjeto: totalHorasProjeto,
-      volumeEmpoladoObra,
-    },
-  );
+  const result = calcItemCost(item, equipmentMap, params, indirectPersonnel);
   const {
     custo_unitario,
     preco_unitario,
     total_item,
-    produtividade_informada,
     produtividade_utilizada,
     lucro_unitario,
     margem_percentual,
     markup_aplicado,
     calibracao,
     status,
-    detalhes,
     divergencia,
   } = result;
 
@@ -151,15 +146,31 @@ export default function BudgetItem({
 
   const isVB = item.unit === "VB";
   const fatorEmpolamentoPadrao = normalizeFatorEmpolamento(params?.fator_empolamento, 1.36);
-  const volumeInSituItem = parseFloat(item.volumeInSitu) || parseFloat(item.quantity) || 0;
+
+  const volumeInSituItem = toNumber(item.volumeInSitu) || toNumber(item.quantity) || 0;
   const fatorEmpolamentoInfo = resolveFatorEmpolamento(item.fatorEmpolamento || fatorEmpolamentoPadrao, fatorEmpolamentoPadrao);
   const fatorEmpolamentoItem = fatorEmpolamentoInfo.value;
   const volumeEmpoladoItem = calcVolumeComEmpolamento(volumeInSituItem, fatorEmpolamentoItem);
-  const volumeInSituPorViagem = parseFloat(item.volumeInSituPorViagem) || 0;
+
+  const volumeInSituPorViagem = toNumber(item.volumeInSituPorViagem) || 0;
   const volumeEmpoladoPorViagem = calcVolumeComEmpolamento(volumeInSituPorViagem, fatorEmpolamentoItem);
+
+  const volumesAterro = getVolumesAterro(item, params);
+
   const setFatorEmpolamento = (value) => {
-    const parsed = parseFloat(value);
-    setField("fatorEmpolamento", Number.isFinite(parsed) ? normalizeFatorEmpolamento(parsed, fatorEmpolamentoPadrao) : 0);
+    const parsed = toNumber(value);
+    setField(
+      "fatorEmpolamento",
+      Number.isFinite(parsed) ? normalizeFatorEmpolamento(parsed, fatorEmpolamentoPadrao) : 0
+    );
+  };
+
+  const setFatorEmpolamentoAterro = (value) => {
+    const parsed = toNumber(value);
+    setField(
+      "fatorEmpolamentoAterro",
+      Number.isFinite(parsed) ? normalizeFatorEmpolamento(parsed, fatorEmpolamentoPadrao) : 0
+    );
   };
 
   const hasCalculation =
@@ -188,8 +199,12 @@ export default function BudgetItem({
           <span style={{ color: S.accent, fontWeight: 700 }}>Item {index + 1}</span>
           {item.category && (
             <span style={{
-              fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-              background: "rgba(59, 130, 246, 0.15)", color: S.accent2,
+              fontSize: 10,
+              fontWeight: 600,
+              padding: "2px 8px",
+              borderRadius: 4,
+              background: "rgba(59, 130, 246, 0.15)",
+              color: S.accent2,
             }}>
               {item.category}
             </span>
@@ -211,7 +226,7 @@ export default function BudgetItem({
           <Input
             label={isVB ? "Quantidade" : "Quantidade in situ"}
             value={item.quantity}
-            onChange={v => setField("quantity", parseFloat(v) || 0)}
+            onChange={v => setField("quantity", toNumber(v) || 0)}
             type="number"
             step="0.01"
           />
@@ -240,7 +255,12 @@ export default function BudgetItem({
               step="0.01"
               min="1"
             />
-            <div style={{ fontSize: 11, color: fatorEmpolamentoInfo.status === "converted" ? "#f59e0b" : S.muted, alignSelf: "end", paddingBottom: 4 }}>
+            <div style={{
+              fontSize: 11,
+              color: fatorEmpolamentoInfo.status === "converted" ? "#f59e0b" : S.muted,
+              alignSelf: "end",
+              paddingBottom: 4
+            }}>
               {fatorEmpolamentoInfo.status === "converted"
                 ? `${fmt(fatorEmpolamentoInfo.raw, 2)} convertido para ${fmt(fatorEmpolamentoItem, 2)}x.`
                 : "Use multiplicador: 1,36 = +36%."}
@@ -248,14 +268,14 @@ export default function BudgetItem({
             <Input
               label="Volume empolado (m³)"
               value={volumeEmpoladoItem > 0 ? volumeEmpoladoItem.toFixed(2) : ""}
-              onChange={() => {}}
+              onChange={() => { }}
               readOnly
               placeholder="Quantidade in situ × fator"
             />
             <Input
               label="Volume in situ por viagem"
               value={item.volumeInSituPorViagem || ""}
-              onChange={v => setField("volumeInSituPorViagem", parseFloat(v) || 0)}
+              onChange={v => setField("volumeInSituPorViagem", toNumber(v) || 0)}
               type="number"
               step="0.01"
               min="0"
@@ -263,8 +283,47 @@ export default function BudgetItem({
             <Input
               label="Volume empolado por viagem"
               value={volumeEmpoladoPorViagem > 0 ? volumeEmpoladoPorViagem.toFixed(2) : ""}
-              onChange={() => {}}
+              onChange={() => { }}
               readOnly
+            />
+          </Row>
+        )}
+
+        {!isVB && (
+          <Row>
+            <Input
+              label="Volume de aterro in situ (m³)"
+              value={item.volumeAterroInSitu || ""}
+              onChange={v => setField("volumeAterroInSitu", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Ex: 511262.56"
+            />
+            <Input
+              label="Fator empolamento aterro"
+              value={item.fatorEmpolamentoAterro || volumesAterro.fatorEmpolamentoAterro}
+              onChange={setFatorEmpolamentoAterro}
+              type="number"
+              step="0.01"
+              min="1"
+              placeholder="Ex: 1.36"
+            />
+            <Input
+              label="Volume aterro empolado (m³)"
+              value={volumesAterro.volumeAterroEmpolado > 0 ? volumesAterro.volumeAterroEmpolado.toFixed(2) : ""}
+              onChange={() => { }}
+              readOnly
+              placeholder="Aterro in situ × fator"
+            />
+            <Input
+              label="Volume transporte (m³)"
+              value={item.volumeTransporte || ""}
+              onChange={v => setField("volumeTransporte", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Opcional"
             />
           </Row>
         )}
@@ -350,20 +409,20 @@ export default function BudgetItem({
         )}
 
         {hasCalculation && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
             {!isVB && status !== "ok" && (
-              <div style={{ padding: '8px 12px', background: '#ffeeba', color: '#856404', borderRadius: 4, fontSize: 13, fontWeight: 600 }}>
+              <div style={{ padding: "8px 12px", background: "#ffeeba", color: "#856404", borderRadius: 4, fontSize: 13, fontWeight: 600 }}>
                 ⚠️ Atenção:{" "}
                 {status === "alerta"
                   ? "Risco de Prejuízo Operacional (Produtividade/Eficiência baixa)"
                   : status === "produtividade_invalida"
-                  ? "Informe uma produtividade válida para calcular o custo"
-                  : status}
+                    ? "Informe uma produtividade válida para calcular o custo"
+                    : status}
               </div>
             )}
 
             {!isVB && divergencia && (
-              <div style={{ padding: '8px 12px', background: 'rgba(239, 68, 68, 0.10)', color: '#fecaca', borderRadius: 6, fontSize: 12, fontWeight: 700, border: '1px solid rgba(239, 68, 68, 0.35)' }}>
+              <div style={{ padding: "8px 12px", background: "rgba(239, 68, 68, 0.10)", color: "#fecaca", borderRadius: 6, fontSize: 12, fontWeight: 700, border: "1px solid rgba(239, 68, 68, 0.35)" }}>
                 Divergência vs planilha (&gt; {divergencia.limitePct}%):
                 {" "}
                 {divergencia.diffCostPct != null && (
@@ -377,13 +436,13 @@ export default function BudgetItem({
             )}
 
             {/* ── Barra de Custo/Preço ── */}
-            <div className="cost-bar" style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+            <div className="cost-bar" style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
               {isVB ? (
                 <>
                   <span className="cost-bar__item">
                     Verba Unitária: <b style={{ color: S.text }}>{fmtBRL(custo_unitario)}</b>
                   </span>
-                  <span className="cost-bar__item" style={{ marginLeft: 'auto' }}>
+                  <span className="cost-bar__item" style={{ marginLeft: "auto" }}>
                     Total VB: <b style={{ color: S.accent }}>{fmtBRL(total_item)}</b>
                   </span>
                 </>
@@ -401,7 +460,7 @@ export default function BudgetItem({
                   <span className="cost-bar__item">
                     Lucro Unid: <b style={{ color: S.accent3 }}>{fmtBRL(lucro_unitario)} ({fmt(margem_percentual)}%)</b>
                   </span>
-                  <span className="cost-bar__item" style={{ marginLeft: 'auto' }}>
+                  <span className="cost-bar__item" style={{ marginLeft: "auto" }}>
                     Total do Item: <b style={{ color: S.text }}>{fmtBRL(total_item)}</b>
                   </span>
                 </>
@@ -451,7 +510,7 @@ export default function BudgetItem({
                     <span style={calibrationStyles.badge(
                       calibracao.markup_classificacao === "padrao" ? S.accent3
                         : calibracao.markup_classificacao === "conservador" ? S.accent2
-                        : "#f59e0b"
+                          : "#f59e0b"
                     )}>
                       Markup {fmt(calibracao.markup_real)}×
                     </span>

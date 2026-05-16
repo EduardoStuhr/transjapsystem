@@ -11,6 +11,13 @@ import { uid, today } from "../utils/format";
 import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
 
+const toNumber = (v, fallback = 0) => {
+  if (typeof v === "number") return Number.isFinite(v) ? v : fallback;
+  if (!v) return fallback;
+  const n = parseFloat(String(v).replace(",", "."));
+  return Number.isFinite(n) ? n : fallback;
+};
+
 // volumeEmpolado NUNCA persiste como propriedade do item.
 // É sempre derivado em tempo real de (volumeInSitu × fatorEmpolamento) no engine
 // e na UI (BudgetItem / ComposicaoPreco / PainelComposicao). Persistir um valor
@@ -24,6 +31,13 @@ const emptyItem = () => ({
   volumeInSitu: 1,
   fatorEmpolamento: "",
   volumeInSituPorViagem: ASSUMPTIONS.transporte.volumePorViagemInSitu,
+
+  // Volumes específicos por etapa.
+  // Usados para não calcular rolo/trator/grade/pipa sobre volume de escavação.
+  volumeAterroInSitu: 0,
+  fatorEmpolamentoAterro: "",
+  volumeTransporte: 0,
+
   adjustedProductivity: 0,
   terrainFactor: 1,
   distanceFactor: 1,
@@ -43,30 +57,30 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   const [meta, setMeta] = useState(
     editQuotation
       ? {
-          client: editQuotation.client,
-          cnpj: editQuotation.cnpj,
-          project: editQuotation.project,
-          location: editQuotation.location,
-          prazo: editQuotation.prazo,
-          notes: editQuotation.notes || "",
-          volumeEmpoladoObra: editQuotation.volumeEmpoladoObra ?? 0,
-          totalHorasProjeto:  editQuotation.totalHorasProjeto  ?? 0,
-        }
+        client: editQuotation.client,
+        cnpj: editQuotation.cnpj,
+        project: editQuotation.project,
+        location: editQuotation.location,
+        prazo: editQuotation.prazo,
+        notes: editQuotation.notes || "",
+        volumeEmpoladoObra: editQuotation.volumeEmpoladoObra ?? 0,
+        totalHorasProjeto: editQuotation.totalHorasProjeto ?? 0,
+      }
       : {
-          client: "", cnpj: "", project: "", location: "", prazo: "", notes: "",
-          volumeEmpoladoObra: 0,
-          totalHorasProjeto:  0,
-        }
+        client: "", cnpj: "", project: "", location: "", prazo: "", notes: "",
+        volumeEmpoladoObra: 0,
+        totalHorasProjeto: 0,
+      }
   );
-  const [items,    setItems]    = useState(editQuotation ? editQuotation.items : [emptyItem()]);
+  const [items, setItems] = useState(editQuotation ? editQuotation.items : [emptyItem()]);
   // Pessoas indiretas — nível do orçamento (uma única lista para todos os itens).
   const [indirectPersonnel, setIndirectPersonnel] = useState(
     Array.isArray(editQuotation?.indirectPersonnel) ? editQuotation.indirectPersonnel : []
   );
-  const [bdi,      setBdi]      = useState(editQuotation?.bdi      ?? params.defaultBDI);
+  const [bdi, setBdi] = useState(editQuotation?.bdi ?? params.defaultBDI);
   const [adminPct, setAdminPct] = useState(editQuotation?.adminPct ?? 3);
   const [mobilPct, setMobilPct] = useState(editQuotation?.mobilPct ?? 2);
-  const [riskPct,  setRiskPct]  = useState(editQuotation?.riskPct  ?? 1);
+  const [riskPct, setRiskPct] = useState(editQuotation?.riskPct ?? 1);
   const numOperadoresFrotaOrcamento = useMemo(
     () => calcNumOperadoresFrota(items, params),
     [items, params],
@@ -84,7 +98,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
         return {
           ...it,
           equipmentLines: it.equipmentLines.map((l, j) =>
-            j !== ei ? l : { ...l, [k]: k === "equipmentId" ? v : parseFloat(v) || 1 }
+            j !== ei ? l : { ...l, [k]: k === "equipmentId" ? v : toNumber(v) || 1 }
           ),
         };
       }
@@ -93,13 +107,16 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       const fatorPadrao = params?.fator_empolamento || (1 + ASSUMPTIONS.empolamento.fatorPadrao);
 
       if (key === "quantity") {
-        const volumeInSitu = parseFloat(value) || 0;
+        const volumeInSitu = toNumber(value) || 0;
         up.quantity = volumeInSitu;
         up.volumeInSitu = volumeInSitu;
       }
 
       if (key === "fatorEmpolamento") {
-        up.fatorEmpolamento = parseFloat(value) || 0;
+        up.fatorEmpolamento = toNumber(value) || 0;
+      }
+      if (key === "fatorEmpolamentoAterro") {
+        up.fatorEmpolamentoAterro = toNumber(value) || 0;
       }
 
       if (key === "serviceId") {
@@ -110,8 +127,9 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
           up.adjustedProductivity = svc.baseProductivity;
           up.category = svc.category; // Calibragem RONMA
           up.terrainFactor = svc.efficiency || ASSUMPTIONS.produtividade.eficienciaPadrao;
-          up.volumeInSitu = parseFloat(up.volumeInSitu) || parseFloat(up.quantity) || 0;
-          up.fatorEmpolamento = parseFloat(up.fatorEmpolamento) || fatorPadrao;
+          up.volumeInSitu = toNumber(up.volumeInSitu) || toNumber(up.quantity) || 0;
+          up.fatorEmpolamento = toNumber(up.fatorEmpolamento) || fatorPadrao;
+          up.fatorEmpolamentoAterro = toNumber(up.fatorEmpolamentoAterro) || fatorPadrao;
         }
       }
 
@@ -130,7 +148,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
     const numMachines = items.reduce((acc, it) => acc + it.equipmentLines.reduce((s, line) => s + line.quantity, 0), 0);
     const mobilCost = (params.mobilizationDistance * params.flatbedCostPerKm) * numMachines;
     const fatorPadrao = params?.fator_empolamento || (1 + ASSUMPTIONS.empolamento.fatorPadrao);
-    
+
     const mobilSvc = services.find(s => s.name.toLowerCase().includes("mobiliza"));
     const topoSvc = services.find(s => s.name.toLowerCase().includes("topografia"));
 
@@ -185,23 +203,23 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
 
   const save = (status = "rascunho") => {
     onSave({
-      id:        editQuotation?.id        || uid(),
-      number:    editQuotation?.number    || `TJ-${Date.now().toString().slice(-6)}`,
+      id: editQuotation?.id || uid(),
+      number: editQuotation?.number || `TJ-${Date.now().toString().slice(-6)}`,
       createdAt: editQuotation?.createdAt || today(),
       status,
       ...meta,
       volumeEmpoladoObra: meta.volumeEmpoladoObra,
-      totalHorasProjeto:  meta.totalHorasProjeto,
+      totalHorasProjeto: meta.totalHorasProjeto,
       indirectPersonnel,
       items: totals.itemsCalc,
       bdi, adminPct, mobilPct, riskPct,
-      subtotal:      totals.subtotal,
+      subtotal: totals.subtotal,
       subtotalPrice: totals.subtotalPrice,
-      indirect:      totals.indirect,
-      bdiVal:        totals.bdiVal,
-      precoFinal:    totals.precoFinal,
-      laborFat:      totals.laborFat,
-      equipFat:      totals.equipFat,
+      indirect: totals.indirect,
+      bdiVal: totals.bdiVal,
+      precoFinal: totals.precoFinal,
+      laborFat: totals.laborFat,
+      equipFat: totals.equipFat,
     });
   };
 
@@ -247,26 +265,26 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       {step === 1 && (
         <div className="card" style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
           <Row>
-            <Input label="Nome do Cliente"   value={meta.client}   onChange={v => setMeta(m => ({ ...m, client: v }))} />
-            <Input label="CNPJ"              value={meta.cnpj}     onChange={v => setMeta(m => ({ ...m, cnpj: v }))} />
+            <Input label="Nome do Cliente" value={meta.client} onChange={v => setMeta(m => ({ ...m, client: v }))} />
+            <Input label="CNPJ" value={meta.cnpj} onChange={v => setMeta(m => ({ ...m, cnpj: v }))} />
           </Row>
           <Row>
-            <Input label="Nome do Projeto / Obra" value={meta.project}  onChange={v => setMeta(m => ({ ...m, project: v }))} />
-            <Input label="Localização"            value={meta.location} onChange={v => setMeta(m => ({ ...m, location: v }))} />
+            <Input label="Nome do Projeto / Obra" value={meta.project} onChange={v => setMeta(m => ({ ...m, project: v }))} />
+            <Input label="Localização" value={meta.location} onChange={v => setMeta(m => ({ ...m, location: v }))} />
           </Row>
           <Row>
             <Input label="Prazo de Execução" value={meta.prazo} onChange={v => setMeta(m => ({ ...m, prazo: v }))} placeholder="Ex: 45 dias úteis" />
             <Input
               label="Total de horas do projeto (h)"
               value={meta.totalHorasProjeto || ""}
-              onChange={v => setMeta(m => ({ ...m, totalHorasProjeto: parseFloat(v) || 0 }))}
+              onChange={v => setMeta(m => ({ ...m, totalHorasProjeto: toNumber(v) || 0 }))}
               type="number" step="1" min="0"
               placeholder="Ex: 1782 (250 dias × 9h)"
             />
             <Input
               label="Volume empolado total (m³)"
               value={meta.volumeEmpoladoObra || ""}
-              onChange={v => setMeta(m => ({ ...m, volumeEmpoladoObra: parseFloat(v) || 0 }))}
+              onChange={v => setMeta(m => ({ ...m, volumeEmpoladoObra: toNumber(v) || 0 }))}
               type="number" step="0.01" min="0"
               placeholder="Volume manual da obra"
             />
@@ -328,10 +346,10 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
             adminPct={adminPct}
             mobilPct={mobilPct}
             riskPct={riskPct}
-            onChangeBdi={v   => setBdi(parseFloat(v)      || 0)}
-            onChangeAdmin={v => setAdminPct(parseFloat(v) || 0)}
-            onChangeMobil={v => setMobilPct(parseFloat(v) || 0)}
-            onChangeRisk={v  => setRiskPct(parseFloat(v)  || 0)}
+            onChangeBdi={v => setBdi(toNumber(v) || 0)}
+            onChangeAdmin={v => setAdminPct(toNumber(v) || 0)}
+            onChangeMobil={v => setMobilPct(toNumber(v) || 0)}
+            onChangeRisk={v => setRiskPct(toNumber(v) || 0)}
           />
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
             <Button onClick={() => setStep(2)} variant="ghost">← Voltar</Button>
