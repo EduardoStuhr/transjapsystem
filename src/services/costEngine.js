@@ -17,6 +17,10 @@ import { fmt, fmtBRL } from "../utils/format";
 import { calcVolumeComEmpolamento, normalizeFatorEmpolamento } from "../utils/empolamento";
 import { ASSUMPTIONS, getFatorSolo } from "../config/assumptions.config";
 import { getVolumeBasePorEquipamentoOuCategoria } from "../utils/volumeBase";
+import {
+  calcTransporteAgregado,
+  buildLinhaAuditoriaTransporteAgregado,
+} from "./transportAgregadoEngine";
 
 const safePct = (val) => (val > 1 ? val / 100 : val);
 const toNum = (v, fallback = 0) => {
@@ -844,6 +848,21 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     });
   }
 
+  // ── Transporte Agregado (caminhão truck / frete) ──
+  // Entra como linha separada de composição. Não é equipamento operacional
+  // (sem diesel/manut/operador próprios). Soma como parcela no R$/m³ do
+  // item e no total venda/custo do item.
+  const transporteAgregado = calcTransporteAgregado(item, params);
+  if (transporteAgregado.enabled) {
+    custo_unitario += transporteAgregado.custoUnitarioTransporte;
+    preco_unitario += transporteAgregado.precoUnitarioTransporte;
+    totalCustoEquipamentosObra += transporteAgregado.custoTotalFrete;
+    totalPrecoEquipamentosObra += transporteAgregado.totalVendaTransporte;
+
+    const linhaTransporte = buildLinhaAuditoriaTransporteAgregado(transporteAgregado, item);
+    if (linhaTransporte) detalheEquipamentos.push(linhaTransporte);
+  }
+
   const markup_efetivo = custo_unitario > 0 ? preco_unitario / custo_unitario : 0;
   const quantidade = toNum(item.quantity, volumeInSitu);
   const total_item = totalPrecoEquipamentosObra > 0
@@ -906,6 +925,9 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       mensagem: `Tipos ignorados no rateio de indireto (são mão de obra direta): ${indiretoBreakdown.ignorados.map(i => i.tipo).join(", ")}.`,
     });
   }
+  if (transporteAgregado.enabled && Array.isArray(transporteAgregado.validacoes)) {
+    transporteAgregado.validacoes.forEach((v) => auditoria.validacoes.push(v));
+  }
 
   return {
     // contrato com a UI existente
@@ -952,6 +974,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       conversao: { custoHora: 0, produtividade: producaoConjuntoHora, custoUnitario: custo_unitario },
       fatores: { fatorBase: 1, valorAposFator1: custo_unitario, ajusteFinal: markup_efetivo, valorAposFator2: preco_unitario, bdi: toNum(params?.defaultBDI, 20) },
       resultado: { precoUnitario: preco_unitario, quantidade, total: total_item },
+      transporteAgregado,
       auditoria,
     },
     calibracao: null,

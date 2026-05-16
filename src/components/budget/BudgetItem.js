@@ -7,6 +7,10 @@ import { Row } from "../ui/Card";
 import EquipmentSelector from "./EquipmentSelector";
 import PainelComposicaoItem from "./PainelComposicaoItem";
 import { calcItemCost } from "../../services/costEngine";
+import {
+  calcTransporteAgregado,
+  TRANSPORTE_AGREGADO_DEFAULT,
+} from "../../services/transportAgregadoEngine";
 import { calcVolumeComEmpolamento, normalizeFatorEmpolamento, resolveFatorEmpolamento } from "../../utils/empolamento";
 import { getVolumesAterro } from "../../utils/volumeBase";
 import { fmt, fmtBRL, uid } from "../../utils/format";
@@ -408,6 +412,14 @@ export default function BudgetItem({
           />
         )}
 
+        {!isVB && (
+          <TransporteAgregadoBlock
+            item={item}
+            params={params}
+            onSet={(k, v) => onUpdate(index, "_setTransporteAgregado", { k, v })}
+          />
+        )}
+
         {hasCalculation && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
             {!isVB && status !== "ok" && (
@@ -561,6 +573,192 @@ export default function BudgetItem({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// TransporteAgregadoBlock — composição de caminhão truck / frete.
+// Não é equipamento operacional; entra como linha separada baseada em
+// volume por viagem × valor do frete (por viagem ou por m³).
+// ──────────────────────────────────────────────────────────────────
+function TransporteAgregadoBlock({ item, params, onSet }) {
+  const t = { ...TRANSPORTE_AGREGADO_DEFAULT, ...(item.transporteAgregado || {}) };
+  const enabled = !!t.enabled;
+  const calc = calcTransporteAgregado(item, params);
+
+  const blockStyle = {
+    marginTop: 4,
+    padding: 14,
+    border: `1px solid ${enabled ? "rgba(59, 130, 246, 0.45)" : "rgba(255,255,255,0.10)"}`,
+    background: enabled ? "rgba(59, 130, 246, 0.06)" : "rgba(255,255,255,0.02)",
+    borderRadius: 8,
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  };
+
+  const labelInput = {
+    fontSize: 11,
+    color: S.muted,
+    textTransform: "uppercase",
+    fontWeight: 700,
+    letterSpacing: 0.4,
+  };
+
+  const valueChip = {
+    fontFamily: "monospace",
+    fontSize: 12,
+    fontWeight: 700,
+    color: S.text,
+    background: "rgba(0,0,0,0.25)",
+    padding: "2px 8px",
+    borderRadius: 4,
+  };
+
+  return (
+    <div style={blockStyle}>
+      <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontWeight: 700, color: S.text }}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => onSet("enabled", e.target.checked)}
+        />
+        🚚 Transporte Agregado / Caminhão Truck
+        <span style={{ fontWeight: 500, fontSize: 11, color: S.muted, marginLeft: 6 }}>
+          (frete por viagem ou por m³ — sem diesel/manut/operador próprios)
+        </span>
+      </label>
+
+      {enabled && (
+        <>
+          <Row>
+            <Input
+              label="Descrição"
+              value={t.descricao}
+              onChange={(v) => onSet("descricao", v)}
+            />
+            <Input
+              label="DMT (km)"
+              value={t.dmtKm}
+              onChange={(v) => onSet("dmtKm", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+            <Input
+              label="Volume base de transporte (m³ in situ)"
+              value={t.volumeBaseTransporte}
+              onChange={(v) => onSet("volumeBaseTransporte", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+          </Row>
+
+          <Row>
+            <Input
+              label="Volume in situ por viagem (m³)"
+              value={t.volumeInSituPorViagem}
+              onChange={(v) => onSet("volumeInSituPorViagem", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+            <Input
+              label="Fator empolamento transporte"
+              value={t.fatorEmpolamentoTransporte}
+              onChange={(v) => onSet("fatorEmpolamentoTransporte", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="ex: 1.36"
+            />
+            <Input
+              label="Perda no carregamento (%)"
+              value={t.perdaCarregamentoPct}
+              onChange={(v) => onSet("perdaCarregamentoPct", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="0 a 100"
+            />
+          </Row>
+
+          <Row>
+            <Select
+              label="Modo do frete"
+              value={t.modoFrete}
+              onChange={(v) => onSet("modoFrete", v)}
+              options={[
+                { value: "por_viagem", label: "Por viagem" },
+                { value: "por_m3", label: "Por m³" },
+              ]}
+            />
+            <Input
+              label={t.modoFrete === "por_m3" ? "Valor do frete (R$/m³)" : "Valor do frete (R$/viagem)"}
+              value={t.valorFretePorM3OuViagem}
+              onChange={(v) => onSet("valorFretePorM3OuViagem", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+            />
+            <Input
+              label="Markup transporte (×)"
+              value={t.markupTransporte}
+              onChange={(v) => onSet("markupTransporte", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="ex: 1.30"
+            />
+          </Row>
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 8,
+            padding: 10,
+            background: "rgba(0,0,0,0.18)",
+            borderRadius: 6,
+          }}>
+            <Computed label="Volume empolado por viagem" valor={`${fmt(calc.volumeEmpoladoPorViagem, 2)} m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Perda no carregamento" valor={`${fmt(calc.perdaCarregamentoM3, 2)} m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Volume líquido por viagem" valor={`${fmt(calc.volumeLiquidoPorViagem, 2)} m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Quantidade de viagens" valor={fmt(calc.quantidadeViagens, 2)} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Custo total frete" valor={fmtBRL(calc.custoTotalFrete)} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Custo unitário transporte" valor={`${fmtBRL(calc.custoUnitarioTransporte)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Preço unitário transporte" valor={`${fmtBRL(calc.precoUnitarioTransporte)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Total venda transporte" valor={fmtBRL(calc.totalVendaTransporte)} labelStyle={labelInput} valueStyle={valueChip} />
+          </div>
+
+          {calc.validacoes && calc.validacoes.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {calc.validacoes.map((v, i) => (
+                <div key={i} style={{
+                  padding: "6px 10px",
+                  background: v.severidade === "erro" ? "rgba(239, 68, 68, 0.12)" : "rgba(245, 158, 11, 0.12)",
+                  color: v.severidade === "erro" ? "#fca5a5" : "#fde68a",
+                  borderRadius: 4,
+                  fontSize: 11.5,
+                  fontWeight: 600,
+                }}>
+                  {v.severidade === "erro" ? "✕ " : "⚠ "}{v.mensagem}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Computed({ label, valor, labelStyle, valueStyle }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <span style={labelStyle}>{label}</span>
+      <span style={valueStyle}>{valor}</span>
     </div>
   );
 }

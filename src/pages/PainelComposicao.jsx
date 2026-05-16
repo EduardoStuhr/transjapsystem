@@ -105,6 +105,7 @@ const labelVolumeBase = (tipo) => {
   if (tipo === "aterro_empolado") return "m³ aterro empolado";
   if (tipo === "empolado") return "m³ empolado";
   if (tipo === "transporte") return "m³ transporte";
+  if (tipo === "transporte_agregado") return "m³ transporte agregado";
   if (tipo === "in_situ_fallback") return "m³ in situ fallback";
   return "m³ in situ";
 };

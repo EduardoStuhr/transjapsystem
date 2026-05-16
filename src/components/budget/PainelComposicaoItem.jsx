@@ -37,6 +37,7 @@ const VOLUME_TIPO_LABEL = {
   aterro_in_situ: "aterro in situ",
   aterro_empolado: "aterro empolado",
   transporte: "transporte",
+  transporte_agregado: "transporte agregado",
   in_situ_fallback: "in situ fallback",
 };
 
@@ -98,14 +99,22 @@ export default function PainelComposicaoItem({ item, result, onClose }) {
             Cards por equipamento exigem modelo novo (volume + prazo + frota).
           </Aviso>
         ) : (
-          eqsVisiveis.map((eq) => (
-            <CardComposicaoEquipamento
-              key={eq.equipmentId || eq.id || eq.equipamento}
-              eq={eq}
-              ctx={ctx}
-              unit={unit}
-            />
-          ))
+          eqsVisiveis.map((eq) =>
+            eq.tipo === "transporte_agregado" ? (
+              <CardTransporteAgregado
+                key={eq.equipmentId || eq.id || eq.equipamento}
+                eq={eq}
+                unit={unit}
+              />
+            ) : (
+              <CardComposicaoEquipamento
+                key={eq.equipmentId || eq.id || eq.equipamento}
+                eq={eq}
+                ctx={ctx}
+                unit={unit}
+              />
+            ),
+          )
         )}
       </Section>
 
@@ -490,6 +499,119 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
             emphasize
           />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Card de Transporte Agregado / Caminhão Truck
+// ──────────────────────────────────────────────────────────────────
+function CardTransporteAgregado({ eq, unit }) {
+  const t = eq.transporteAgregado || {};
+  const porViagem = t.modoFrete === "por_viagem";
+  const fmtFrete = porViagem ? `${fmtBRL(t.valorFrete)}/viagem` : `${fmtBRL(t.valorFrete)}/${unit}`;
+  const linhasFormula = porViagem
+    ? [
+        { label: "Quantidade de viagens", expr: `${fmt(t.volumeBaseTransporte, 2)} ÷ ${fmt(t.volumeLiquidoPorViagem, 2)} = ${fmt(t.quantidadeViagens, 2)} viagens` },
+        { label: "Custo total frete", expr: `${fmt(t.quantidadeViagens, 2)} × ${fmtBRL(t.valorFrete)} = ${fmtBRL(t.custoTotalFrete)}` },
+      ]
+    : [
+        { label: "Custo total frete", expr: `${fmt(t.volumeBaseTransporte, 2)} ${unit} × ${fmtBRL(t.valorFrete)} = ${fmtBRL(t.custoTotalFrete)}` },
+      ];
+  linhasFormula.push(
+    { label: "Custo unitário transporte", expr: `${fmtBRL(t.custoTotalFrete)} ÷ ${fmt(t.volumeBaseTransporte, 2)} ${unit} = ${fmtBRLPreciso(t.custoUnitarioTransporte, 6)}` },
+    { label: "Preço unitário transporte", expr: `${fmtBRLPreciso(t.custoUnitarioTransporte, 6)} × ${fmt(t.markupTransporte, 2)} = ${fmtBRLPreciso(t.precoUnitarioTransporte, 6)}` },
+    { label: "Total venda transporte", expr: `${fmtBRLPreciso(t.precoUnitarioTransporte, 8)} × ${fmt(t.volumeBaseTransporte, 2)} ${unit} = ${fmtBRL(t.totalVendaTransporte)}` },
+  );
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${SS.border}`,
+        background: SS.bg,
+        marginBottom: 14,
+      }}
+    >
+      <div
+        style={{
+          padding: "10px 14px",
+          background: SS.bgHeader,
+          borderBottom: `2px solid ${SS.accentBlue}`,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ fontSize: 18 }}>🚚</span>
+        <span style={{ fontSize: 14, fontWeight: 800, color: SS.headerText, fontFamily: SS.fontUI }}>
+          {eq.equipamento || "Caminhão agregado / Transporte"}
+        </span>
+        <span style={{ fontSize: 11, color: SS.mutedText, fontWeight: 600, fontFamily: SS.fontMono }}>
+          · Categoria: <b style={{ color: SS.formulaText }}>Transporte Agregado</b>
+        </span>
+        <Pill tone="info">FRETE {porViagem ? "POR VIAGEM" : "POR M³"}</Pill>
+      </div>
+
+      <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div>
+          <SubTitle>Parâmetros do frete</SubTitle>
+          <SimpleTable
+            head={["Parâmetro", "Valor"]}
+            aligns={["left", "right"]}
+            rows={[
+              ["DMT", t.dmtKm > 0 ? `${fmt(t.dmtKm, 2)} km` : "—"],
+              ["Volume in situ por viagem", `${fmt(t.volumeInSituPorViagem, 2)} ${unit}`],
+              ["Fator empolamento transporte", `× ${fmt(t.fatorEmpolamentoTransporte, 3)}`],
+              ["Volume empolado por viagem", `${fmt(t.volumeEmpoladoPorViagem, 2)} m³ empolado`],
+              ["Perda no carregamento", `${fmt((t.perdaCarregamentoPct || 0) * 100, 2)}%  →  ${fmt(t.perdaCarregamentoM3, 2)} ${unit}`],
+              ["Volume líquido por viagem", `${fmt(t.volumeLiquidoPorViagem, 2)} ${unit}`],
+              ["Modo do frete", porViagem ? "por viagem" : "por m³"],
+              ["Valor do frete", fmtFrete],
+              ["Volume base de transporte", `${fmt(t.volumeBaseTransporte, 2)} ${unit}`],
+              ["Markup transporte", `× ${fmt(t.markupTransporte, 2)}`],
+            ]}
+          />
+        </div>
+
+        <div>
+          <SubTitle>Fórmula auditável</SubTitle>
+          <SimpleTable
+            head={["Etapa", "Cálculo"]}
+            aligns={["left", "left"]}
+            rows={linhasFormula.map((l) => [l.label, l.expr])}
+          />
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: 1,
+            background: SS.gridLine,
+            border: `1px solid ${SS.border}`,
+          }}
+        >
+          <KpiCell label="Custo unitário transporte" valor={`${fmtBRL(t.custoUnitarioTransporte)} R$/${unit}`} />
+          <KpiCell label="Markup transporte"          valor={`× ${fmt(t.markupTransporte, 2)}`} kind="key" />
+          <KpiCell label="Preço unitário transporte" valor={`${fmtBRL(t.precoUnitarioTransporte)} R$/${unit}`} kind="ref" emphasize />
+          <KpiCell
+            label="Total transporte na obra"
+            valor={fmtBRL(t.totalVendaTransporte)}
+            hint={`= ${fmtBRLPreciso(t.precoUnitarioTransporte, 8)} × ${fmt(t.volumeBaseTransporte, 2)} ${unit} transporte agregado`}
+            kind="ref"
+            emphasize
+          />
+        </div>
+
+        {Array.isArray(t.validacoes) && t.validacoes.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {t.validacoes.map((v, i) => (
+              <Aviso key={i} severidade={v.severidade}>{v.mensagem}</Aviso>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

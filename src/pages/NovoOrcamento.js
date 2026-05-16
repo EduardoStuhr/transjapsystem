@@ -7,6 +7,7 @@ import BudgetItem from "../components/budget/BudgetItem";
 import BudgetSummary from "../components/budget/BudgetSummary";
 import PessoasIndiretas from "../components/budget/PessoasIndiretas";
 import { calcNumOperadoresFrota, calcQuotationTotals } from "../services/costEngine";
+import { TRANSPORTE_AGREGADO_DEFAULT } from "../services/transportAgregadoEngine";
 import { uid, today } from "../utils/format";
 import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
@@ -44,7 +45,8 @@ const emptyItem = () => ({
   manualCost: 0,
   equipmentLines: [],
   soilCategory: "1ª",
-  dmtDistance: 0
+  dmtDistance: 0,
+  transporteAgregado: { ...TRANSPORTE_AGREGADO_DEFAULT },
 });
 
 export default function NovoOrcamento({ services, equipment, params, onSave, editQuotation, onCancel }) {
@@ -100,6 +102,16 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
           equipmentLines: it.equipmentLines.map((l, j) =>
             j !== ei ? l : { ...l, [k]: k === "equipmentId" ? v : toNumber(v) || 1 }
           ),
+        };
+      }
+      if (key === "_setTransporteAgregado") {
+        return {
+          ...it,
+          transporteAgregado: {
+            ...TRANSPORTE_AGREGADO_DEFAULT,
+            ...(it.transporteAgregado || {}),
+            [value.k]: value.v,
+          },
         };
       }
 
