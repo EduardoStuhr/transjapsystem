@@ -510,19 +510,32 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
 function CardTransporteAgregado({ eq, unit }) {
   const t = eq.transporteAgregado || {};
   const porViagem = t.modoFrete === "por_viagem";
-  const fmtFrete = porViagem ? `${fmtBRL(t.valorFrete)}/viagem` : `${fmtBRL(t.valorFrete)}/${unit}`;
-  const linhasFormula = porViagem
-    ? [
-        { label: "Quantidade de viagens", expr: `${fmt(t.volumeBaseTransporte, 2)} ÷ ${fmt(t.volumeLiquidoPorViagem, 2)} = ${fmt(t.quantidadeViagens, 2)} viagens` },
-        { label: "Custo total frete", expr: `${fmt(t.quantidadeViagens, 2)} × ${fmtBRL(t.valorFrete)} = ${fmtBRL(t.custoTotalFrete)}` },
-      ]
-    : [
-        { label: "Custo total frete", expr: `${fmt(t.volumeBaseTransporte, 2)} ${unit} × ${fmtBRL(t.valorFrete)} = ${fmtBRL(t.custoTotalFrete)}` },
-      ];
+
+  const linhasFormula = [];
+  if (t.modoFrete === "planilha_m3_empolado") {
+    linhasFormula.push(
+      { label: "Custo unitário empolado", expr: `${fmtBRL(t.freteBaseUnitario)} + ${fmtBRL(t.acrescimoEmpolamentoUnitario)} + ${fmtBRL(t.acrescimoPerdaUnitario)} = ${fmtBRL(t.custoUnitarioEmpolado)}/m³ emp.` },
+      { label: "Custo total frete", expr: `${fmtBRL(t.custoUnitarioEmpolado)}/m³ emp × ${fmt(t.volumeEmpoladoTotal, 2)} m³ emp = ${fmtBRL(t.custoTotalFrete)}` },
+    );
+  } else if (porViagem) {
+    linhasFormula.push(
+      { label: "Quantidade de viagens", expr: `${fmt(t.volumeBaseInSitu, 2)} ÷ ${fmt(t.volumeInSituPorViagem * (1 - t.acrescimoPerdaPct), 2)} = ${fmt(t.quantidadeViagens, 2)} viagens` },
+      { label: "Custo total frete", expr: `${fmt(t.quantidadeViagens, 2)} × ${fmtBRL(t.valorFreteBase)} = ${fmtBRL(t.custoTotalFrete)}` },
+    );
+  } else {
+    linhasFormula.push(
+      { label: "Custo total frete", expr: `${fmt(t.volumeBaseTransporte, 2)} × ${fmtBRL(t.valorFreteBase)} = ${fmtBRL(t.custoTotalFrete)}` },
+    );
+  }
+
   linhasFormula.push(
-    { label: "Custo unitário transporte", expr: `${fmtBRL(t.custoTotalFrete)} ÷ ${fmt(t.volumeBaseTransporte, 2)} ${unit} = ${fmtBRLPreciso(t.custoUnitarioTransporte, 6)}` },
-    { label: "Preço unitário transporte", expr: `${fmtBRLPreciso(t.custoUnitarioTransporte, 6)} × ${fmt(t.markupTransporte, 2)} = ${fmtBRLPreciso(t.precoUnitarioTransporte, 6)}` },
-    { label: "Total venda transporte", expr: `${fmtBRLPreciso(t.precoUnitarioTransporte, 8)} × ${fmt(t.volumeBaseTransporte, 2)} ${unit} = ${fmtBRL(t.totalVendaTransporte)}` },
+    { label: "Custo equivalente in situ", expr: `${fmtBRL(t.custoTotalFrete)} ÷ ${fmt(t.volumeBaseInSitu, 2)} = ${fmtBRLPreciso(t.custoUnitarioInSitu, 4)}/m³` },
+    { label: "Preço unitário in situ", expr: `${fmtBRLPreciso(t.custoUnitarioInSitu, 4)} × ${fmt(t.markupTransporte, 2)} = ${fmtBRLPreciso(t.precoUnitarioInSitu, 4)}/m³` },
+    { label: "Markup transporte", expr: `× ${fmt(t.markupTransporte, 2)}  (+${(((t.markupTransporte || 1) - 1) * 100).toFixed(0)}%)` },
+    { label: "Preço unit. (empolado)", expr: t.decomposicaoPlanilha
+      ? `${fmtBRLPreciso(t.decomposicaoPlanilha.somaPorM3Empolado, 4)} × ${fmt(t.markupTransporte, 2)} = ${fmtBRLPreciso(t.decomposicaoPlanilha.precoSomaPorM3Empolado, 4)}/m³ emp.`
+      : "—" },
+    { label: "Preço total venda", expr: `${fmtBRL(t.custoTotalFrete)} × ${fmt(t.markupTransporte, 2)} = ${fmtBRL(t.totalVendaTransporte)}` },
   );
 
   return (
@@ -551,7 +564,7 @@ function CardTransporteAgregado({ eq, unit }) {
         <span style={{ fontSize: 11, color: SS.mutedText, fontWeight: 600, fontFamily: SS.fontMono }}>
           · Categoria: <b style={{ color: SS.formulaText }}>Transporte Agregado</b>
         </span>
-        <Pill tone="info">FRETE {porViagem ? "POR VIAGEM" : "POR M³"}</Pill>
+        <Pill tone="info">MODO: {String(t.modoFrete || "planilha").toUpperCase().replace(/_/g, " ")}</Pill>
       </div>
 
       <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -562,14 +575,13 @@ function CardTransporteAgregado({ eq, unit }) {
             aligns={["left", "right"]}
             rows={[
               ["DMT", t.dmtKm > 0 ? `${fmt(t.dmtKm, 2)} km` : "—"],
-              ["Volume in situ por viagem", `${fmt(t.volumeInSituPorViagem, 2)} ${unit}`],
-              ["Fator empolamento transporte", `× ${fmt(t.fatorEmpolamentoTransporte, 3)}`],
-              ["Volume empolado por viagem", `${fmt(t.volumeEmpoladoPorViagem, 2)} m³ empolado`],
-              ["Perda no carregamento", `${fmt((t.perdaCarregamentoPct || 0) * 100, 2)}%  →  ${fmt(t.perdaCarregamentoM3, 2)} ${unit}`],
-              ["Volume líquido por viagem", `${fmt(t.volumeLiquidoPorViagem, 2)} ${unit}`],
-              ["Modo do frete", porViagem ? "por viagem" : "por m³"],
-              ["Valor do frete", fmtFrete],
-              ["Volume base de transporte", `${fmt(t.volumeBaseTransporte, 2)} ${unit}`],
+              ["Volume base in situ", `${fmt(t.volumeBaseInSitu, 2)} ${unit}`],
+              ["Fator empolamento material", `× ${fmt(t.fatorEmpolamentoMaterial, 3)}`],
+              ["Volume empolado total", `${fmt(t.volumeEmpoladoTotal, 2)} m³`],
+              ["Frete base unitário", `${fmtBRL(t.freteBaseUnitario)} / m³ emp`],
+              ["Acréscimo empolamento", `${fmt(t.acrescimoEmpolamentoPct * 100, 0)}%  (→ ${fmtBRL(t.acrescimoEmpolamentoUnitario)})`],
+              ["Acréscimo perda", `${fmt(t.acrescimoPerdaPct * 100, 0)}%  (→ ${fmtBRL(t.acrescimoPerdaUnitario)})`],
+              ["Custo unitário empolado", `${fmtBRL(t.custoUnitarioEmpolado)} / m³ emp`],
               ["Markup transporte", `× ${fmt(t.markupTransporte, 2)}`],
             ]}
           />
@@ -584,26 +596,45 @@ function CardTransporteAgregado({ eq, unit }) {
           />
         </div>
 
-        {t.modoFrete === "por_m3_planilha" && t.decomposicaoPlanilha && (
+        {t.decomposicaoPlanilha && (
           <DecomposicaoPlanilha t={t} unit={unit} />
         )}
 
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
             gap: 1,
             background: SS.gridLine,
             border: `1px solid ${SS.border}`,
           }}
         >
-          <KpiCell label="Custo unitário transporte" valor={`${fmtBRL(t.custoUnitarioTransporte)} R$/${unit}`} />
-          <KpiCell label="Markup transporte"          valor={`× ${fmt(t.markupTransporte, 2)}`} kind="key" />
-          <KpiCell label="Preço unitário transporte" valor={`${fmtBRL(t.precoUnitarioTransporte)} R$/${unit}`} kind="ref" emphasize />
+          <KpiCell label="Custo total" valor={fmtBRL(t.custoTotalFrete)} kind="formula" />
           <KpiCell
-            label="Total transporte na obra"
+            label={`Markup × ${fmt(t.markupTransporte, 2)}`}
+            valor={`+${(((t.markupTransporte || 1) - 1) * 100).toFixed(0)}%`}
+            kind="key"
+          />
+          <KpiCell
+            label="Preço total venda"
             valor={fmtBRL(t.totalVendaTransporte)}
-            hint={`= ${fmtBRLPreciso(t.precoUnitarioTransporte, 8)} × ${fmt(t.volumeBaseTransporte, 2)} ${unit} transporte agregado`}
+            hint={`= ${fmtBRL(t.custoTotalFrete)} × ${fmt(t.markupTransporte, 2)} markup`}
+            kind="ref"
+            emphasize
+          />
+          <KpiCell
+            label="Custo unit. equiv. in situ"
+            valor={`${fmtBRLPreciso(t.custoUnitarioTransporte ?? t.custoUnitarioInSitu, 4)}/${unit}`}
+            kind="formula"
+          />
+          <KpiCell
+            label="Custo unit. m³ empolado"
+            valor={t.decomposicaoPlanilha ? `${fmtBRLPreciso(t.decomposicaoPlanilha.somaPorM3Empolado, 4)}/m³ emp.` : "—"}
+            kind="formula"
+          />
+          <KpiCell
+            label="Preço unit. equiv. in situ"
+            valor={`${fmtBRLPreciso(t.precoUnitarioTransporte ?? t.precoUnitarioInSitu, 4)}/${unit}`}
             kind="ref"
             emphasize
           />
@@ -621,10 +652,9 @@ function CardTransporteAgregado({ eq, unit }) {
   );
 }
 
-function DecomposicaoPlanilha({ t, unit }) {
-  const d = t.decomposicaoPlanilha || {};
-  const empPct = ((d.fatorEmpAcresc || 0) * 100).toFixed(0);
-  const perdaPct = ((d.perdaCarregamentoPct || 0) * 100).toFixed(0);
+function DecomposicaoPlanilhaLegacy({ t, unit }) {
+  const empPct = (t.acrescimoEmpolamentoPct * 100).toFixed(0);
+  const perdaPct = (t.acrescimoPerdaPct * 100).toFixed(0);
   return (
     <div>
       <SubTitle>Decomposição (modo planilha)</SubTitle>
@@ -632,14 +662,90 @@ function DecomposicaoPlanilha({ t, unit }) {
         head={["Parcela", "R$/m³ empolado"]}
         aligns={["left", "right"]}
         rows={[
-          ["Frete base", fmtBRLPreciso(d.parcelaBase, 4)],
-          [`Acréscimo por empolamento (${empPct}%)`, fmtBRLPreciso(d.parcelaEmpolamento, 4)],
-          [`Acréscimo por perda (${perdaPct}%)`, fmtBRLPreciso(d.parcelaPerda, 4)],
-          [<Strong>= Custo total por m³ empolado</Strong>, <Strong>{fmtBRLPreciso(d.somaPorM3Empolado, 4)}</Strong>],
-          [`× Volume empolado total`, `${fmt(d.volumeEmpoladoTotal, 2)} m³ empolado`],
+          ["Frete base", fmtBRLPreciso(t.freteBaseUnitario, 4)],
+          [`Acréscimo por empolamento (${empPct}%)`, fmtBRLPreciso(t.acrescimoEmpolamentoUnitario, 4)],
+          [`Acréscimo por perda (${perdaPct}%)`, fmtBRLPreciso(t.acrescimoPerdaUnitario, 4)],
+          [<Strong>= Custo total por m³ empolado</Strong>, <Strong>{fmtBRLPreciso(t.custoUnitarioEmpolado, 4)}</Strong>],
+          [`× Volume empolado total`, `${fmt(t.volumeEmpoladoTotal, 2)} m³ empolado`],
           [<Strong>= Custo total frete</Strong>, <Strong>{fmtBRL(t.custoTotalFrete)}</Strong>],
+          [<span style={{ color: SS.mutedText }}>Custo equivalente por m³ in situ</span>, <span style={{ color: SS.mutedText }}>{fmtBRL(t.custoUnitarioInSitu)}</span>],
         ]}
       />
+    </div>
+  );
+}
+
+function DecomposicaoPlanilha({ t }) {
+  const d = t.decomposicaoPlanilha || {};
+  const empPct = ((d.fatorEmpAcresc || 0) * 100).toFixed(0);
+  const perdaPct = ((d.perdaCarregamentoPct || 0) * 100).toFixed(0);
+  const markupPct = ((d.markup || 1) * 100).toFixed(0);
+  const volStr = `${fmt(d.volumeEmpoladoTotal, 2)} m³ emp.`;
+
+  return (
+    <div>
+      <SubTitle>Decomposicao (modo planilha - Dados Transporte 2 + COMPOSICAO!L11)</SubTitle>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{
+          fontSize: 11, fontWeight: 700, color: SS.formulaText,
+          fontFamily: SS.fontUI, padding: "4px 8px",
+          background: SS.bgHeader, borderTop: `1px solid ${SS.border}`,
+          borderLeft: `1px solid ${SS.border}`, borderRight: `1px solid ${SS.border}`,
+        }}>
+          CUSTO (R$/m³ empolado × m³ empolado = R$)
+        </div>
+        <SimpleTable
+          head={["Parcela", "R$/m³ emp.", "× m³ emp.", "= Total R$"]}
+          aligns={["left", "right", "right", "right"]}
+          rows={[
+            ["Frete base", fmtBRLPreciso(d.parcelaBase, 4), volStr, fmtBRL(d.totalBase)],
+            [`Acrescimo empolamento (${empPct}%)`, fmtBRLPreciso(d.parcelaEmpolamento, 4), volStr, fmtBRL(d.totalEmpolamento)],
+            [`Acrescimo perda (${perdaPct}%)`, fmtBRLPreciso(d.parcelaPerda, 4), volStr, fmtBRL(d.totalPerda)],
+            [<Strong>= Custo total</Strong>, <Strong>{fmtBRLPreciso(d.somaPorM3Empolado, 4)}</Strong>, <Strong>{volStr}</Strong>, <Strong>{fmtBRL(d.totalCusto)}</Strong>],
+          ]}
+        />
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{
+          fontSize: 11, fontWeight: 700, color: SS.refText,
+          fontFamily: SS.fontUI, padding: "4px 8px",
+          background: SS.bgHeader, borderTop: `1px solid ${SS.border}`,
+          borderLeft: `1px solid ${SS.border}`, borderRight: `1px solid ${SS.border}`,
+        }}>
+          VENDA (custo × markup {markupPct}% = preco)
+        </div>
+        <SimpleTable
+          head={["Parcela", `R$/m³ emp. × ${fmt(d.markup, 2)}`, "× m³ emp.", "= Venda R$"]}
+          aligns={["left", "right", "right", "right"]}
+          rows={[
+            ["Frete base", fmtBRLPreciso(d.precoBase, 4), volStr, fmtBRL(d.totalVendaBase)],
+            [`Acrescimo empolamento (${empPct}%)`, fmtBRLPreciso(d.precoEmpolamento, 4), volStr, fmtBRL(d.totalVendaEmpolamento)],
+            [`Acrescimo perda (${perdaPct}%)`, fmtBRLPreciso(d.precoPerda, 4), volStr, fmtBRL(d.totalVendaPerda)],
+            [<Strong>= Preco total de venda</Strong>, <Strong>{fmtBRLPreciso(d.precoSomaPorM3Empolado, 4)}</Strong>, <Strong>{volStr}</Strong>, <Strong>{fmtBRL(d.totalVendaGeral)}</Strong>],
+          ]}
+        />
+      </div>
+
+      <div style={{
+        fontSize: 11, color: SS.mutedText, fontFamily: SS.fontMono,
+        padding: "6px 4px 0 4px", lineHeight: 1.6,
+      }}>
+        Custo equivalente in situ: {fmtBRLPreciso(d.custoUnitInSitu, 4)}/m³ in situ
+        ({fmtBRL(d.totalCusto)} ÷ {fmt(d.volumeInSitu, 2)} m³ in situ)
+        <br />
+        Preco equivalente in situ: {fmtBRLPreciso(d.precoUnitInSitu, 4)}/m³ in situ
+        ({fmtBRL(d.totalVendaGeral)} ÷ {fmt(d.volumeInSitu, 2)} m³ in situ)
+        <br />
+        <span style={{ color: SS.formulaText }}>
+          Soma totais R$ custo = {fmtBRL((d.totalBase || 0) + (d.totalEmpolamento || 0) + (d.totalPerda || 0))} = Total Custo
+        </span>
+        <br />
+        <span style={{ color: SS.refText }}>
+          Soma totais R$ venda = {fmtBRL((d.totalVendaBase || 0) + (d.totalVendaEmpolamento || 0) + (d.totalVendaPerda || 0))} = Total Venda
+        </span>
+      </div>
     </div>
   );
 }

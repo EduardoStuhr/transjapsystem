@@ -654,8 +654,8 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
             />
             <Select
               label="Tipo do volume base"
-              value={t.volumeBaseTipo}
-              onChange={(v) => onSet("volumeBaseTipo", v)}
+              value={t.tipoVolumeBase || t.volumeBaseTipo}
+              onChange={(v) => onSet("tipoVolumeBase", v)}
               options={[
                 { value: "in_situ", label: "In situ (volume no solo)" },
                 { value: "empolado", label: "Empolado (volume após escavação)" },
@@ -672,9 +672,9 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
               placeholder="0,00"
             />
             <Input
-              label="Acréscimo do frete por empolamento (%)"
-              value={t.fatorEmpolamentoTransporte}
-              onChange={(v) => onSet("fatorEmpolamentoTransporte", v)}
+              label="Acréscimo comercial empolamento (%)"
+              value={t.acrescimoFreteEmpolamentoPct ?? t.fatorEmpolamentoTransporte}
+              onChange={(v) => onSet("acrescimoFreteEmpolamentoPct", v)}
               type="text"
               placeholder="ex: 40 para 40%"
             />
@@ -683,7 +683,7 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
               value={t.perdaCarregamentoPct}
               onChange={(v) => onSet("perdaCarregamentoPct", v)}
               type="text"
-              placeholder="0 a 100"
+              placeholder="ex: 10 para 10%"
             />
           </Row>
 
@@ -696,13 +696,13 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
                 { value: "por_viagem", label: "Por viagem (R$/viagem × Σ viagens)" },
                 { value: "por_m3_in_situ", label: "Por m³ in situ (simples)" },
                 { value: "por_m3_empolado", label: "Por m³ empolado (simples)" },
-                { value: "por_m3_planilha", label: "Por m³ (planilha — frete × (1 + empol + perda))" },
+                { value: "planilha_m3_empolado", label: "Por m³ (planilha — frete × (1 + empol + perda))" },
               ]}
             />
             <Input
-              label={t.modoFrete && t.modoFrete.startsWith("por_m3") ? "Valor do frete (R$/m³)" : "Valor do frete (R$/viagem)"}
-              value={t.valorFretePorM3OuViagem}
-              onChange={(v) => onSet("valorFretePorM3OuViagem", v)}
+              label={t.modoFrete && t.modoFrete.includes("por_m3") ? "Valor do frete (R$/m³)" : "Valor do frete (R$/viagem)"}
+              value={t.valorFreteBase ?? t.valorFretePorM3OuViagem}
+              onChange={(v) => onSet("valorFreteBase", v)}
               type="text"
               placeholder="0,00"
             />
@@ -723,17 +723,15 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
             background: "rgba(0,0,0,0.18)",
             borderRadius: 6,
           }}>
-            <Computed label="Volume empolado por viagem" valor={`${fmt(calc.volumeEmpoladoPorViagem, 2)} m³`} labelStyle={labelInput} valueStyle={valueChip} />
-            <Computed label="Perda no carregamento" valor={`${fmt(calc.perdaCarregamentoM3, 2)} m³`} labelStyle={labelInput} valueStyle={valueChip} />
-            <Computed label="Volume líquido por viagem" valor={`${fmt(calc.volumeLiquidoPorViagem, 2)} m³`} labelStyle={labelInput} valueStyle={valueChip} />
-            <Computed label="Quantidade de viagens" valor={fmt(calc.quantidadeViagens, 2)} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Volume empolado total" valor={`${fmt(calc.volumeEmpoladoTotal, 2)} m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Custo unitário empolado" valor={`${fmtBRL(calc.custoUnitarioEmpolado)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
             <Computed label="Custo total frete" valor={fmtBRL(calc.custoTotalFrete)} labelStyle={labelInput} valueStyle={valueChip} />
-            <Computed label="Custo unitário transporte" valor={`${fmtBRL(calc.custoUnitarioTransporte)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
-            <Computed label="Preço unitário transporte" valor={`${fmtBRL(calc.precoUnitarioTransporte)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Custo equivalente in situ" valor={`${fmtBRL(calc.custoUnitarioInSitu)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
+            <Computed label="Preço unitário in situ" valor={`${fmtBRL(calc.precoUnitarioInSitu)} / m³`} labelStyle={labelInput} valueStyle={valueChip} />
             <Computed label="Total venda transporte" valor={fmtBRL(calc.totalVendaTransporte)} labelStyle={labelInput} valueStyle={valueChip} />
           </div>
 
-          {calc.decomposicaoPlanilha && (
+          {calc.modoFrete === "planilha_m3_empolado" && (
             <div style={{
               marginTop: 10,
               padding: 12,
@@ -746,44 +744,33 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
               lineHeight: 1.4,
             }}>
               <div style={{ fontWeight: 700, marginBottom: 8, color: S.accent, textTransform: "uppercase", fontSize: 10 }}>
-                Auditoria de Cálculo (Modo Planilha)
+                Decomposição Modo Planilha (RONMA)
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "2px 20px" }}>
-                <span>Volume base ({calc.decomposicaoPlanilha.volumeBaseTipo === "in_situ" ? "in situ" : "empolado"})</span>
-                <span>{fmt(calc.decomposicaoPlanilha.volumeBaseTransporte, 2)} m³</span>
-
-                {calc.decomposicaoPlanilha.volumeBaseTipo === "in_situ" && (
-                  <>
-                    <span>× Fator empolamento material (do contrato)</span>
-                    <span>× {fmt(calc.decomposicaoPlanilha.fatorMaterialMult, 2)}</span>
-                    <div style={{ gridColumn: "span 2", borderBottom: "1px solid rgba(255,255,255,0.1)", margin: "4px 0" }} />
-                    <span style={{ fontWeight: 700 }}>= Volume empolado total</span>
-                    <span style={{ fontWeight: 700 }}>{fmt(calc.decomposicaoPlanilha.volumeEmpoladoTotal, 2)} m³</span>
-                    <div style={{ height: 10, gridColumn: "span 2" }} />
-                  </>
-                )}
-
                 <span>Frete base</span>
-                <span>{fmtBRL(calc.decomposicaoPlanilha.parcelaBase)}/m³ empolado</span>
+                <span>{fmtBRL(calc.freteBaseUnitario)}/m³ empolado</span>
 
-                <span>+ Acréscimo comercial empolamento ({fmt(calc.decomposicaoPlanilha.fatorEmpAcresc * 100, 0)}%)</span>
-                <span>{fmtBRL(calc.decomposicaoPlanilha.parcelaEmpolamento)}/m³</span>
+                <span>+ Acréscimo por empolamento ({fmt(calc.acrescimoEmpolamentoPct * 100, 0)}%)</span>
+                <span>{fmtBRL(calc.acrescimoEmpolamentoUnitario)}/m³</span>
 
-                <span>+ Acréscimo comercial perda ({fmt(calc.decomposicaoPlanilha.perdaCarregamentoPct * 100, 0)}%)</span>
-                <span>{fmtBRL(calc.decomposicaoPlanilha.parcelaPerda)}/m³</span>
+                <span>+ Acréscimo por perda ({fmt(calc.acrescimoPerdaPct * 100, 0)}%)</span>
+                <span>{fmtBRL(calc.acrescimoPerdaUnitario)}/m³</span>
 
                 <div style={{ gridColumn: "span 2", borderBottom: "1px solid rgba(255,255,255,0.1)", margin: "4px 0" }} />
 
                 <span style={{ fontWeight: 700 }}>= Custo total por m³ empolado</span>
-                <span style={{ fontWeight: 700 }}>{fmtBRL(calc.decomposicaoPlanilha.somaPorM3Empolado)}/m³</span>
+                <span style={{ fontWeight: 700 }}>{fmtBRL(calc.custoUnitarioEmpolado)}/m³</span>
 
                 <span>× Volume empolado total</span>
-                <span>× {fmt(calc.decomposicaoPlanilha.volumeEmpoladoTotal, 2)} m³</span>
+                <span>× {fmt(calc.volumeEmpoladoTotal, 2)} m³</span>
 
                 <div style={{ gridColumn: "span 2", borderBottom: "1px solid rgba(255,255,255,0.25)", margin: "4px 0", height: 2, borderTop: "1px solid rgba(255,255,255,0.25)" }} />
 
                 <span style={{ fontWeight: 700, color: S.accent3, fontSize: 13 }}>= Custo total frete</span>
                 <span style={{ fontWeight: 700, color: S.accent3, fontSize: 13 }}>{fmtBRL(calc.custoTotalFrete)}</span>
+                
+                <span style={{ color: S.muted }}>Custo equivalente por m³ in situ</span>
+                <span style={{ color: S.muted }}>{fmtBRL(calc.custoUnitarioInSitu)}/m³</span>
               </div>
             </div>
           )}
