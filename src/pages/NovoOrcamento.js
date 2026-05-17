@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Save, CheckCircle, ChevronRight, Zap } from "lucide-react";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
@@ -10,6 +10,7 @@ import { calcNumOperadoresFrota, calcQuotationTotals } from "../services/costEng
 import { TRANSPORTE_AGREGADO_DEFAULT } from "../services/transportAgregadoEngine";
 import { fmt, uid, today } from "../utils/format";
 import { buildPrazoParams, calcTotalHorasProjeto, migratePrazoMeta } from "../utils/quotationPrazo";
+import { recalcularItensDerivados } from "../utils/itemDerivation";
 import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
 
@@ -18,6 +19,25 @@ const toNumber = (v, fallback = 0) => {
   if (!v) return fallback;
   const n = parseFloat(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : fallback;
+};
+
+const isLimpezaCamadaVegetal = (svc = {}) => {
+  const nome = String(svc.name || svc.desc || "").toLowerCase();
+  return nome.includes("limpeza") && nome.includes("vegetal");
+};
+
+const normalizeText = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const usaHorasMaquinaGlobalPorPadrao = (svc = {}) => {
+  const texto = normalizeText(svc.category || svc.name || svc.desc || svc.unit || "");
+  if (!texto) return false;
+  if (texto.includes("escavacao")) return false;
+  if (texto.includes("limpeza") || texto.includes("preliminar") || texto.includes("apoio")) return false;
+  return true;
 };
 
 // volumeEmpolado NUNCA persiste como propriedade do item.
@@ -46,6 +66,28 @@ const emptyItem = () => ({
   manualCost: 0,
   equipmentLines: [],
   rateiaIndireto: true,
+  modoPreco: "tecnico",
+  modeloHorasMaquina: "proprio",
+  precoUnitarioMercado: 0,
+  precoUnitCravado: 0,
+  fontePrecoCravado: "",
+  derivadoDe: null,
+  formulaDerivacao: null,
+  manutencaoHorasBase: "",
+  maoObraHorasBase: "",
+  produtividadeUnidade: "hora",
+  modoCalculoPrazoItem: "automatico",
+  prazoDiasUteisItem: 0,
+  horasDiaItem: 0,
+  markup: "",
+  indiretoBase: "area",
+  manutencaoHorasManual: 0,
+  manutencaoValorFixo: 0,
+  maoObraHorasManual: 0,
+  maoObraValorFixo: 0,
+  indiretoValorFixo: 0,
+  indiretoPercentualDireto: 0,
+  indiretoMensal: 0,
   soilCategory: "1ª",
   dmtDistance: 0,
   transporteAgregado: { ...TRANSPORTE_AGREGADO_DEFAULT },
@@ -133,6 +175,9 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
           },
         };
       }
+      if (key === "_unlinkDerivation") {
+        return { ...it, derivadoDe: null, formulaDerivacao: null };
+      }
 
       const up = { ...it, [key]: value };
       const fatorPadrao = params?.fator_empolamento || (1 + ASSUMPTIONS.empolamento.fatorPadrao);
@@ -149,18 +194,49 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       if (key === "fatorEmpolamentoAterro") {
         up.fatorEmpolamentoAterro = toNumber(value) || 0;
       }
+      if (key === "markup") {
+        up.markup = toNumber(value) || 0;
+        up.markupManual = true;
+      }
+      if (key === "modeloHorasMaquina") {
+        up.modeloHorasMaquina = value;
+        up.modeloHorasMaquinaManual = true;
+      }
 
       if (key === "serviceId") {
         const svc = services.find(s => s.id === value);
         if (svc) {
           up.unit = svc.unit;
           up.desc = svc.name;
+          const isLimpezaVegetal = isLimpezaCamadaVegetal(svc);
           up.adjustedProductivity = svc.baseProductivity;
+          up.produtividadeUnidade = svc.productivityUnit || "hora";
+          up.modoCalculoPrazoItem = isLimpezaVegetal ? "automatico" : up.modoCalculoPrazoItem;
+          up.prazoDiasUteisItem = isLimpezaVegetal ? 0 : up.prazoDiasUteisItem;
+          up.horasDiaItem = isLimpezaVegetal ? (meta.horasDia || paramsDoOrcamento?.horas_dia || 9) : up.horasDiaItem;
           up.category = svc.category; // Calibragem RONMA
-          up.terrainFactor = svc.efficiency || ASSUMPTIONS.produtividade.eficienciaPadrao;
+          up.terrainFactor = isLimpezaVegetal
+            ? 1
+            : (svc.efficiency || ASSUMPTIONS.produtividade.eficienciaPadrao);
+          up.manutencaoHorasBase = isLimpezaVegetal ? "item" : up.manutencaoHorasBase;
+          up.maoObraHorasBase = isLimpezaVegetal ? "item" : up.maoObraHorasBase;
+          up.markup = svc.markup || "";
+          up.markupManual = false;
+          const usaGlobalPadrao = usaHorasMaquinaGlobalPorPadrao(svc);
+          up.modeloHorasMaquina = usaGlobalPadrao ? "global_obra" : (up.modeloHorasMaquina || "proprio");
+          up.modeloHorasMaquinaManual = false;
+          const precoCravadoSugerido = toNumber(svc.precoCravadoSugerido, 0);
+          const modoPrecoDefault = svc.modoPrecoDefault || (isLimpezaVegetal && toNumber(svc.referenceUnitPrice) > 0 ? "mercado" : "tecnico");
+          up.precoUnitarioMercado = isLimpezaVegetal ? (toNumber(svc.referenceUnitPrice) || 0) : up.precoUnitarioMercado;
+          up.precoUnitCravado = precoCravadoSugerido || up.precoUnitCravado || 0;
+          up.fontePrecoCravado = precoCravadoSugerido
+            ? `Cotação mercado / RONMA - ${svc.name}`
+            : up.fontePrecoCravado;
+          up.modoPreco = modoPrecoDefault;
+          up.rateiaIndireto = isLimpezaVegetal ? false : up.rateiaIndireto;
           up.volumeInSitu = toNumber(up.volumeInSitu) || toNumber(up.quantity) || 0;
-          up.fatorEmpolamento = toNumber(up.fatorEmpolamento) || fatorPadrao;
-          up.fatorEmpolamentoAterro = toNumber(up.fatorEmpolamentoAterro) || fatorPadrao;
+          up.fatorEmpolamento = isLimpezaVegetal ? 1 : (toNumber(up.fatorEmpolamento) || fatorPadrao);
+          up.fatorEmpolamentoAterro = isLimpezaVegetal ? "" : (toNumber(up.fatorEmpolamentoAterro) || fatorPadrao);
         }
       }
 
@@ -181,6 +257,57 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
 
   const addItem = () => setItems(prev => [...prev, itemComPrazoMeta()]);
   const delItem = (idx) => setItems(prev => prev.filter((_, i) => i !== idx));
+
+  useEffect(() => {
+    setItems(prev => recalcularItensDerivados(prev, services));
+  }, [items, services]);
+
+  const getServicoRelacionadoPendente = (itemAtual) => {
+    const servicoPai = services.find(s => s.id === itemAtual.serviceId);
+    if (!servicoPai?.servicoRelacionado) return null;
+    if (!servicoPai?.espessuraCamadaPadrao) return null;
+
+    const jaExiste = items.some((it) => {
+      if (it.id === itemAtual.id) return false;
+      const servico = services.find(s => s.id === it.serviceId);
+      return servico?.name === servicoPai.servicoRelacionado;
+    });
+
+    return jaExiste ? null : servicoPai.servicoRelacionado;
+  };
+
+  const adicionarServicoRelacionado = (nomeServicoFilho, itemPai) => {
+    const servicoFilho = services.find(s => s.name === nomeServicoFilho);
+    const servicoPai = services.find(s => s.id === itemPai.serviceId);
+    if (!servicoFilho || !servicoPai) return;
+
+    const espessura = toNumber(servicoPai.espessuraCamadaPadrao, 0);
+    const quantidadePai = toNumber(itemPai.quantity, toNumber(itemPai.volumeInSitu, 0));
+    const quantidadeFilho = espessura > 0 ? quantidadePai * espessura : 0;
+    const precoCravado = toNumber(servicoFilho.precoCravadoSugerido, 0);
+
+    setItems(prev => [
+      ...prev,
+      itemComPrazoMeta({
+        serviceId: servicoFilho.id,
+        desc: servicoFilho.name,
+        category: servicoFilho.category,
+        unit: servicoFilho.unit,
+        quantity: quantidadeFilho,
+        volumeInSitu: quantidadeFilho,
+        adjustedProductivity: toNumber(servicoFilho.baseProductivity, 0),
+        produtividadeUnidade: servicoFilho.productivityUnit || "hora",
+        terrainFactor: servicoFilho.efficiency || 1,
+        modoPreco: servicoFilho.modoPrecoDefault || "tecnico",
+        precoUnitCravado: precoCravado,
+        fontePrecoCravado: precoCravado ? `Cotação mercado / RONMA - ${servicoFilho.name}` : "",
+        derivadoDe: itemPai.id,
+        formulaDerivacao: espessura > 0 ? `área_pai x ${espessura} m` : null,
+        rateiaIndireto: false,
+        dmtDistance: 1,
+      }),
+    ]);
+  };
 
   // ── Automação de Mobilização e Topografia ──
   const generateAutoItems = () => {
@@ -237,6 +364,15 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
       volumeEmpoladoObra: meta.volumeEmpoladoObra,
     }),
     [items, bdi, adminPct, mobilPct, riskPct, eqMap, paramsDoOrcamento, indirectPersonnel, meta.volumeEmpoladoObra]
+  );
+  const horasMaquinaGlobalInfo = totals?.horasMaquinaGlobalInfo || {};
+  const horasMaquinaGlobalObra = totals?.horasMaquinaGlobalObra || 0;
+  const paramsDoOrcamentoComGlobal = useMemo(
+    () => ({
+      ...paramsDoOrcamento,
+      horas_maquina_global_obra: horasMaquinaGlobalObra,
+    }),
+    [paramsDoOrcamento, horasMaquinaGlobalObra],
   );
 
   const save = (status = "rascunho") => {
@@ -338,9 +474,28 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               placeholder="Ex: 9"
             />
           </Row>
+          {horasMaquinaGlobalObra > 0 && (
+            <div style={{
+              padding: "10px 14px",
+              background: "rgba(40, 80, 120, 0.10)",
+              borderLeft: "3px solid rgba(70, 130, 180, 0.7)",
+              fontSize: 12,
+              color: S.text,
+            }}>
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                Horas-mÃ¡quina global da obra: {fmt(horasMaquinaGlobalObra, 2)} h
+              </div>
+              <div style={{ color: S.muted }}>
+                Calculado do item de EscavaÃ§Ã£o: {fmt(horasMaquinaGlobalInfo.volumeEscavacao || 0, 0)} mÂ³ in situ / {fmt(horasMaquinaGlobalInfo.producaoEscavadeiras || 0, 1)} mÂ³/h = {fmt(horasMaquinaGlobalObra, 2)} h.
+              </div>
+              <div style={{ color: S.muted, marginTop: 4, fontSize: 11 }}>
+                Itens marcados com "Modelo de horas-mÃ¡quina = Global da obra" usam este valor no diesel.
+              </div>
+            </div>
+          )}
           <Row>
             <Input
-              label="Total de horas do projeto (calculado)"
+              label="Horas gerais do contrato (calculado)"
               value={`${fmt(totalHorasProjetoCalculado, 0)} h`}
               readOnly
               style={{ background: "rgba(0,0,0,0.20)" }}
@@ -375,7 +530,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
           <PessoasIndiretas
             value={indirectPersonnel}
             onChange={setIndirectPersonnel}
-            params={paramsDoOrcamento}
+            params={paramsDoOrcamentoComGlobal}
             items={items}
             totalHorasProjeto={totalHorasProjetoCalculado}
           />
@@ -398,11 +553,13 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               equipmentMap={eqMap}
               equipmentOptions={eqOptions}
               serviceOptions={svcOptions}
-              params={paramsDoOrcamento}
+              params={paramsDoOrcamentoComGlobal}
               indirectPersonnel={indirectPersonnel}
               numOperadoresFrotaOrcamento={numOperadoresFrotaOrcamento}
               totalHorasProjeto={totalHorasProjetoCalculado}
               volumeEmpoladoObra={meta.volumeEmpoladoObra}
+              servicoRelacionadoPendente={getServicoRelacionadoPendente(item)}
+              onAddRelatedService={adicionarServicoRelacionado}
               onUpdate={updateItem}
               onDelete={() => delItem(idx)}
             />

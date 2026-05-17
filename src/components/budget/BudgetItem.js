@@ -3,7 +3,7 @@ import { Trash2, AlertTriangle, CheckCircle, TrendingUp, Target } from "lucide-r
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
-import { Row } from "../ui/Card";
+import { Badge, Row } from "../ui/Card";
 import EquipmentSelector from "./EquipmentSelector";
 import PainelComposicaoItem from "./PainelComposicaoItem";
 import { calcItemCost } from "../../services/costEngine";
@@ -14,6 +14,7 @@ import {
 import { calcVolumeComEmpolamento, normalizeFatorEmpolamento, resolveFatorEmpolamento } from "../../utils/empolamento";
 import { getVolumesAterro } from "../../utils/volumeBase";
 import { fmt, fmtBRL, uid } from "../../utils/format";
+import { getReferenciaPrecoMercado } from "../../data/precosMercado";
 import S from "../../styles/tokens";
 
 const toNumber = (v, fallback = 0) => {
@@ -21,6 +22,20 @@ const toNumber = (v, fallback = 0) => {
   if (!v) return fallback;
   const n = parseFloat(String(v).replace(",", "."));
   return Number.isFinite(n) ? n : fallback;
+};
+
+const normalizeText = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+const usaHorasMaquinaGlobalPorPadrao = (item = {}) => {
+  const texto = normalizeText(item.category || item.desc || item.unit || "");
+  if (!texto) return false;
+  if (texto.includes("escavacao")) return false;
+  if (texto.includes("limpeza") || texto.includes("preliminar") || texto.includes("apoio")) return false;
+  return true;
 };
 
 // ── Estilos do Painel de Calibragem ──
@@ -128,11 +143,14 @@ export default function BudgetItem({
   indirectPersonnel = [],
   volumeEmpoladoObra,
   totalHorasProjeto,
+  servicoRelacionadoPendente,
+  onAddRelatedService,
   onUpdate,
   onDelete,
 }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [showRateioHint, setShowRateioHint] = useState(false);
+  const [sugestaoDispensada, setSugestaoDispensada] = useState(null);
   const result = calcItemCost(item, equipmentMap, params, indirectPersonnel);
   const {
     custo_unitario,
@@ -148,8 +166,21 @@ export default function BudgetItem({
   } = result;
 
   const setField = (k, v) => onUpdate(index, k, v);
+  const mostrarSugestaoRelacionado =
+    servicoRelacionadoPendente && sugestaoDispensada !== servicoRelacionadoPendente;
 
   const isVB = item.unit === "VB";
+  const unitUpper = String(item.unit || "").toUpperCase();
+  const precoUnitarioMercado = toNumber(item.precoUnitarioMercado);
+  const isAreaItem = unitUpper === "M2" || unitUpper === "M²";
+  const modoPreco = item.modoPreco || (isAreaItem && precoUnitarioMercado > 0 ? "mercado" : "tecnico");
+  const usaPrecoMercado = isAreaItem && modoPreco === "mercado";
+  const usaPrecoCravado = modoPreco === "preco_cravado";
+  const usaComposicaoTecnica = !usaPrecoMercado && !usaPrecoCravado;
+  const modeloHorasDefault = usaHorasMaquinaGlobalPorPadrao(item) ? "global_obra" : "proprio";
+  const modeloHorasMaquinaEfetivo = item.modeloHorasMaquinaManual === true
+    ? (item.modeloHorasMaquina || "proprio")
+    : modeloHorasDefault;
   useEffect(() => {
     const servico = services.find(s => s.id === item.serviceId);
     if (!servico) {
@@ -167,6 +198,10 @@ export default function BudgetItem({
 
     setShowRateioHint(sugerirDesligarRateio && item.rateiaIndireto !== false);
   }, [item.serviceId, item.rateiaIndireto, services]);
+
+  useEffect(() => {
+    setSugestaoDispensada(null);
+  }, [item.serviceId]);
 
   const fatorEmpolamentoPadrao = normalizeFatorEmpolamento(params?.fator_empolamento, 1.36);
 
@@ -199,6 +234,10 @@ export default function BudgetItem({
   const hasCalculation =
     isVB
       ? (item.manualCost || 0) > 0
+      : usaPrecoCravado
+        ? (item.precoUnitCravado || 0) > 0 && (item.quantity || 0) > 0
+      : usaPrecoMercado
+        ? precoUnitarioMercado > 0 && volumeInSituItem > 0
       : (item.equipmentLines.length > 0 || (item.manualCost || 0) > 0) && item.adjustedProductivity > 0;
 
   const soilOptions = [
@@ -232,6 +271,11 @@ export default function BudgetItem({
               {item.category}
             </span>
           )}
+          {item.derivadoDe && (
+            <Badge color={S.accent2}>
+              Derivado · {item.formulaDerivacao || "item pai"}
+            </Badge>
+          )}
         </div>
         <Button onClick={onDelete} variant="danger" size="sm">
           <Trash2 size={12} />
@@ -247,7 +291,7 @@ export default function BudgetItem({
             options={serviceOptions}
           />
           <Input
-            label={isVB ? "Quantidade" : "Quantidade in situ"}
+            label={isVB ? "Quantidade" : isAreaItem ? "Área do item" : "Quantidade in situ"}
             value={item.quantity}
             onChange={v => setField("quantity", toNumber(v) || 0)}
             type="number"
@@ -258,7 +302,7 @@ export default function BudgetItem({
             value={item.unit}
             onChange={v => setField("unit", v)}
           />
-          {!isVB && (
+          {!isVB && !isAreaItem && (
             <Select
               label="Categoria de Solo"
               value={item.soilCategory || "1ª"}
@@ -268,7 +312,73 @@ export default function BudgetItem({
           )}
         </Row>
 
-        {!isVB && (
+        {mostrarSugestaoRelacionado && (
+          <div style={{
+            padding: 12,
+            background: "rgba(70, 130, 180, 0.10)",
+            borderLeft: "3px solid rgba(70, 130, 180, 0.6)",
+            margin: "2px 0",
+            fontSize: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}>
+            <div style={{ color: S.text }}>
+              <strong>Serviço relacionado:</strong>{" "}
+              Este item normalmente gera material que precisa ser transportado.
+              Deseja adicionar <strong>{servicoRelacionadoPendente}</strong> ao orçamento?
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <Button
+                onClick={() => {
+                  onAddRelatedService?.(servicoRelacionadoPendente, item);
+                  setSugestaoDispensada(servicoRelacionadoPendente);
+                }}
+                variant="primary"
+                size="sm"
+              >
+                + Adicionar item relacionado
+              </Button>
+              <Button
+                onClick={() => setSugestaoDispensada(servicoRelacionadoPendente)}
+                variant="ghost"
+                size="sm"
+              >
+                Dispensar
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {item.derivadoDe && (
+          <div style={{
+            padding: 10,
+            background: "rgba(59, 130, 246, 0.08)",
+            border: "1px solid rgba(59, 130, 246, 0.22)",
+            borderRadius: 6,
+            color: S.muted,
+            fontSize: 11,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+          }}>
+            <span>
+              Quantidade calculada automaticamente do item pai
+              {item.formulaDerivacao ? ` (${item.formulaDerivacao})` : ""}.
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onUpdate(index, "_unlinkDerivation", true)}
+            >
+              Desvincular
+            </Button>
+          </div>
+        )}
+
+        {!isVB && !isAreaItem && (
           <Row>
             <Input
               label="Fator Empolamento"
@@ -312,7 +422,7 @@ export default function BudgetItem({
           </Row>
         )}
 
-        {!isVB && (
+        {!isVB && !isAreaItem && (
           <Row>
             <Input
               label="Volume de aterro in situ (m³)"
@@ -351,7 +461,7 @@ export default function BudgetItem({
           </Row>
         )}
 
-        {!isVB && (
+        {!isVB && usaComposicaoTecnica && (
           <Row>
             <div>
               <Input
@@ -378,6 +488,49 @@ export default function BudgetItem({
                 </div>
               )}
             </div>
+            {isAreaItem && (
+              <Select
+                label="Produtividade em"
+                value={item.produtividadeUnidade || "hora"}
+                onChange={v => setField("produtividadeUnidade", v)}
+                options={[
+                  { value: "hora", label: `${item.unit}/h` },
+                  { value: "dia", label: `${item.unit}/dia` },
+                ]}
+              />
+            )}
+            {isAreaItem && (
+              <Select
+                label="Modo de prazo"
+                value={item.modoCalculoPrazoItem || "automatico"}
+                onChange={v => setField("modoCalculoPrazoItem", v)}
+                options={[
+                  { value: "automatico", label: "Automático por produtividade" },
+                  { value: "manual", label: "Manual por prazo" },
+                ]}
+              />
+            )}
+            {isAreaItem && item.modoCalculoPrazoItem === "manual" && (
+              <Input
+                label="Prazo do item (dias úteis)"
+                value={item.prazoDiasUteisItem || ""}
+                onChange={v => setField("prazoDiasUteisItem", toNumber(v) || 0)}
+                type="number"
+                step="0.01"
+                min="0"
+              />
+            )}
+            {isAreaItem && (
+              <Input
+                label="Horas/dia do item"
+                value={item.horasDiaItem || ""}
+                onChange={v => setField("horasDiaItem", toNumber(v) || 0)}
+                type="number"
+                step="0.5"
+                min="0"
+                placeholder="Ex: 9"
+              />
+            )}
             <Input
               label="Distância Real DMT (km)"
               value={item.dmtDistance || ""}
@@ -404,9 +557,167 @@ export default function BudgetItem({
               min="0.1"
               placeholder="Ex: 0.9"
             />
+            <Select
+              label="Manutenção usa"
+              value={item.manutencaoHorasBase || (isAreaItem ? "item" : "projeto")}
+              onChange={v => setField("manutencaoHorasBase", v)}
+              options={[
+                { value: "item", label: "Execução do item" },
+                { value: "maquina", label: "Horas-máquina" },
+                { value: "projeto", label: "Horas-projeto" },
+                { value: "manual", label: "Horas manuais" },
+                { value: "fixo", label: "Valor fixo" },
+              ]}
+            />
+            <Select
+              label="Mão de obra usa"
+              value={item.maoObraHorasBase || (isAreaItem ? "item" : "projeto")}
+              onChange={v => setField("maoObraHorasBase", v)}
+              options={[
+                { value: "item", label: "Execução do item" },
+                { value: "maquina", label: "Horas-máquina" },
+                { value: "projeto", label: "Horas-projeto" },
+                { value: "manual", label: "Horas manuais" },
+                { value: "fixo", label: "Valor fixo" },
+              ]}
+            />
           </Row>
         )}
 
+        <Row>
+          <Select
+            label="Modo de preço"
+            value={modoPreco}
+            onChange={v => setField("modoPreco", v)}
+            options={[
+              { value: "tecnico", label: "Composição técnica (custo + markup)" },
+              ...(isAreaItem ? [{ value: "mercado", label: "Preço de mercado (área)" }] : []),
+              { value: "preco_cravado", label: "Preço cravado de mercado (R$/un fixo)" },
+            ]}
+          />
+          {modoPreco === "mercado" && isAreaItem && (
+            <Input
+              label={`Preço de mercado (R$/${item.unit || "m²"})`}
+              value={item.precoUnitarioMercado || ""}
+              onChange={v => setField("precoUnitarioMercado", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Ex: 1.10"
+              hint="Área × preço informado, sem diesel, manutenção, mão de obra, indiretos ou markup."
+            />
+          )}
+          {usaComposicaoTecnica && (
+            <Select
+              label="Modelo de horas-mÃ¡quina"
+              value={modeloHorasMaquinaEfetivo}
+              onChange={v => setField("modeloHorasMaquina", v)}
+              options={[
+                { value: "proprio", label: "PrÃ³prio do item" },
+                { value: "global_obra", label: "Global da obra" },
+              ]}
+            />
+          )}
+        </Row>
+
+        {usaComposicaoTecnica && modeloHorasMaquinaEfetivo === "global_obra" && (
+          <div style={{
+            fontSize: 11,
+            color: S.muted,
+            padding: "6px 10px",
+            background: "rgba(70, 130, 180, 0.08)",
+            borderLeft: "3px solid rgba(70, 130, 180, 0.6)",
+          }}>
+            <strong style={{ color: S.text }}>Modelo planilha RONMA:</strong>{" "}
+            o diesel deste item usa as horas globais das escavadeiras da obra
+            (volume de escavaÃ§Ã£o dividido pela produÃ§Ã£o das escavadeiras).
+            ManutenÃ§Ã£o e mÃ£o de obra continuam seguindo as bases selecionadas no item.
+          </div>
+        )}
+
+        {usaPrecoCravado && (
+          <div style={{
+            padding: 12,
+            background: "rgba(50, 100, 50, 0.08)",
+            borderLeft: "3px solid rgba(80, 160, 80, 0.6)",
+            marginTop: 4,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}>
+            <div style={{ fontSize: 11, color: "#9b9" }}>
+              📌 Modo preço cravado: o item será cobrado como
+              {" "}<strong>qty × preço unitário</strong>, sem composição técnica,
+              sem markup automático, sem indireto rateado. Use para serviços
+              de mercado consagrado (limpeza, mobilização, transporte DMT
+              curto, frete agregado simples).
+            </div>
+            <Row>
+              <Input
+                label={`Preço unitário cravado (R$/${item.unit || "un"})`}
+                value={item.precoUnitCravado || ""}
+                onChange={v => setField("precoUnitCravado", parseFloat(v) || 0)}
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Ex: 1.10"
+              />
+              <Input
+                label="Fonte do preço (justificativa)"
+                value={item.fontePrecoCravado || ""}
+                onChange={v => setField("fontePrecoCravado", v)}
+                type="text"
+                placeholder="Ex: Cotação mercado 2024, SINAPI ref XX, histórico obra Y"
+              />
+            </Row>
+            {(item.precoUnitCravado || 0) > 0 && (
+              <div style={{ fontSize: 12, color: "#bbb" }}>
+                Total: <b style={{ color: S.text }}>{fmtBRL((item.quantity || 0) * (item.precoUnitCravado || 0))}</b>
+                {" "}({fmt(item.quantity || 0, 2)} × R$ {fmt(item.precoUnitCravado || 0, 4)})
+              </div>
+            )}
+            {!item.fontePrecoCravado && (item.precoUnitCravado || 0) > 0 && (
+              <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>
+                ⚠ Sem fonte registrada. Adicione justificativa para auditoria futura.
+              </div>
+            )}
+            {(() => {
+              const svc = services.find(s => s.id === item.serviceId);
+              const ref = svc && getReferenciaPrecoMercado(svc.name);
+              if (!ref || ref.minR$ == null) return null;
+              const p = toNumber(item.precoUnitCravado);
+              const foraMin = p > 0 && p < ref.minR$;
+              const foraMax = p > 0 && p > ref.maxR$;
+              return (
+                <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>
+                  💡 Referência de mercado: R$ {ref.minR$.toFixed(2)} a R$ {ref.maxR$.toFixed(2)}
+                  {ref.medioR$ != null && <> (médio: R$ {ref.medioR$.toFixed(2)})</>}.
+                  {foraMin && <span style={{ color: "#f59e0b" }}> ⚠ Abaixo do mínimo.</span>}
+                  {foraMax && <span style={{ color: "#f59e0b" }}> ⚠ Acima do máximo.</span>}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {!isVB && usaComposicaoTecnica && (
+          <Row>
+            {item.manutencaoHorasBase === "manual" && (
+              <Input label="Horas manuais manutenção" value={item.manutencaoHorasManual || ""} onChange={v => setField("manutencaoHorasManual", toNumber(v) || 0)} type="number" step="0.01" min="0" />
+            )}
+            {item.manutencaoHorasBase === "fixo" && (
+              <Input label="Valor fixo manutenção (R$)" value={item.manutencaoValorFixo || ""} onChange={v => setField("manutencaoValorFixo", toNumber(v) || 0)} type="number" step="0.01" min="0" />
+            )}
+            {item.maoObraHorasBase === "manual" && (
+              <Input label="Horas manuais mão de obra" value={item.maoObraHorasManual || ""} onChange={v => setField("maoObraHorasManual", toNumber(v) || 0)} type="number" step="0.01" min="0" />
+            )}
+            {item.maoObraHorasBase === "fixo" && (
+              <Input label="Valor fixo mão de obra (R$)" value={item.maoObraValorFixo || ""} onChange={v => setField("maoObraValorFixo", toNumber(v) || 0)} type="number" step="0.01" min="0" />
+            )}
+          </Row>
+        )}
+
+        {usaComposicaoTecnica && (
         <Input
           label={isVB ? "Valor da Verba (R$)" : "Custo Manual / Equipe (R$/h)"}
           value={item.manualCost || ""}
@@ -416,8 +727,9 @@ export default function BudgetItem({
           min="0"
           placeholder={isVB ? "Valor total da verba em R$" : "0,00 — deixe em branco se usar apenas equipamentos"}
         />
+        )}
 
-        {!isVB && (
+        {!isVB && usaComposicaoTecnica && (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <label style={{ fontSize: 12, color: S.muted, display: "flex", alignItems: "center", gap: 8 }}>
               <input
@@ -440,7 +752,42 @@ export default function BudgetItem({
           </div>
         )}
 
-        {!isVB && (
+        {!isVB && usaComposicaoTecnica && (
+          <Row>
+            <Select
+              label="Base dos indiretos"
+              value={item.indiretoBase || "area"}
+              onChange={v => setField("indiretoBase", v)}
+              options={[
+                { value: "area", label: "Rateio por área/quantidade" },
+                { value: "horas_projeto", label: "Rateio por horas-projeto" },
+                { value: "fixo", label: "Valor fixo" },
+                { value: "percentual_direto", label: "% sobre custo direto" },
+                { value: "mensal_prazo", label: "Custo mensal × prazo" },
+              ]}
+            />
+            {item.indiretoBase === "fixo" && (
+              <Input label="Indireto fixo (R$)" value={item.indiretoValorFixo || ""} onChange={v => setField("indiretoValorFixo", toNumber(v) || 0)} type="number" step="0.01" min="0" />
+            )}
+            {item.indiretoBase === "percentual_direto" && (
+              <Input label="Indireto sobre direto (%)" value={item.indiretoPercentualDireto || ""} onChange={v => setField("indiretoPercentualDireto", toNumber(v) || 0)} type="number" step="0.01" min="0" />
+            )}
+            {item.indiretoBase === "mensal_prazo" && (
+              <Input label="Indireto mensal (R$)" value={item.indiretoMensal || ""} onChange={v => setField("indiretoMensal", toNumber(v) || 0)} type="number" step="0.01" min="0" />
+            )}
+            <Input
+              label="Markup do item"
+              value={item.markup || ""}
+              onChange={v => setField("markup", toNumber(v) || 0)}
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="Ex: 1.10"
+            />
+          </Row>
+        )}
+
+        {!isVB && usaComposicaoTecnica && (
           <EquipmentSelector
             equipmentLines={item.equipmentLines}
             equipmentOptions={equipmentOptions}
@@ -454,7 +801,7 @@ export default function BudgetItem({
           />
         )}
 
-        {!isVB && (
+        {!isVB && usaComposicaoTecnica && !isAreaItem && (
           <TransporteAgregadoBlock
             item={item}
             params={params}
@@ -491,7 +838,21 @@ export default function BudgetItem({
 
             {/* ── Barra de Custo/Preço ── */}
             <div className="cost-bar" style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-              {isVB ? (
+              {usaPrecoCravado ? (
+                <>
+                  <span className="cost-bar__item">
+                    📌 Preço cravado: <b style={{ color: S.text }}>{fmtBRL(preco_unitario)}/{item.unit}</b>
+                  </span>
+                  <span className="cost-bar__item">
+                    Total: <b style={{ color: S.accent3 }}>{fmtBRL(total_item)}</b>
+                  </span>
+                  {item.fontePrecoCravado && (
+                    <span className="cost-bar__item" style={{ color: S.muted, marginLeft: "auto" }}>
+                      Fonte: {item.fontePrecoCravado}
+                    </span>
+                  )}
+                </>
+              ) : isVB ? (
                 <>
                   <span className="cost-bar__item">
                     Verba Unitária: <b style={{ color: S.text }}>{fmtBRL(custo_unitario)}</b>

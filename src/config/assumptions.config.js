@@ -154,6 +154,7 @@ export const ASSUMPTIONS = {
   limpezaVegetal: {
     profundidadeCamadaM:          0.20,
     percentualAreaTerrenoPadrao:  0.30,
+    produtividadeDiariaM2:        4500,
   },
 
   produtividade: {

@@ -8,6 +8,11 @@ const toNum = (v, fallback = 0) => {
 const textoEq = (eq = {}) =>
   `${eq.category || eq.categoria || ""} ${eq.name || eq.nome || eq.equipamento || ""}`.toLowerCase();
 
+const isItemArea = (item = {}) => {
+  const unit = String(item?.unit || "").toUpperCase();
+  return unit === "M2" || unit === "M²";
+};
+
 export const isEscavadeiraVolume = (eq = {}) => textoEq(eq).includes("escavadeira");
 
 export const isCaminhaoTransporteVolume = (eq = {}) => {
@@ -84,6 +89,18 @@ export const getVolumeBasePorEquipamentoOuCategoria = ({ eq, item = {}, params =
   const refPorCategoria = params?.volume_ref_total_por_categoria || {};
   const categoria = eq?.category || eq?.categoria || "";
   const refConfigurado = refPorCategoria[categoria];
+
+  if (isItemArea(item)) {
+    return {
+      tipo: "area",
+      valor: volumeInSitu,
+      origem: "item.area",
+      alerta: null,
+      volumeAterroInSitu: 0,
+      fatorEmpolamentoAterro: 0,
+      volumeAterroEmpolado: 0,
+    };
+  }
 
   // 1. Overrides explícitos por categoria nos parâmetros
   if (refConfigurado === "aterro_empolado" && volumeAterroEmpolado > 0) {

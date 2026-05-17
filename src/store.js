@@ -26,6 +26,9 @@ const TIPOS_INDIRETOS_DESCONTINUADOS = new Set(["apontador", "administrativo"]);
 const INITIAL_EQUIPMENT_POR_NOME = Object.fromEntries(
   INITIAL_EQUIPMENT.map((eq) => [eq.name, eq])
 );
+const INITIAL_SERVICES_POR_NOME = Object.fromEntries(
+  INITIAL_SERVICES.map((service) => [service.name, service])
+);
 
 const isRoloCompactador = (eq = {}) =>
   `${eq.name || ""}`.toLowerCase().includes("rolo compactador");
@@ -142,8 +145,60 @@ const migrateEquipment = (storedList) => (storedList || []).map((eq) => {
     consumption: consumo,
     custo_h_manutencao: custoManutencao,
   };
+  if (String(merged.name || "").toLowerCase().includes("pipa")) {
+    merged.category = "Pipa";
+  }
   return sanitizeEquipmentOperatorOverride(merged);
 });
+
+const migrateServices = (storedList) => {
+  const source = Array.isArray(storedList) && storedList.length > 0 ? storedList : INITIAL_SERVICES;
+  const migrated = source.map((service) => {
+    const defaults = INITIAL_SERVICES_POR_NOME[service?.name];
+    if (!defaults) return service;
+
+    const merged = mergeIfMissing(service, defaults);
+    if (service.name === "Limpeza de Camada Vegetal") {
+      return {
+        ...merged,
+        baseProductivity: defaults.baseProductivity,
+        productivityUnit: defaults.productivityUnit,
+        espessuraCamadaPadrao: defaults.espessuraCamadaPadrao,
+        modoPrecoDefault: defaults.modoPrecoDefault,
+        precoCravadoSugerido: defaults.precoCravadoSugerido,
+        servicoRelacionado: defaults.servicoRelacionado,
+        observacao: defaults.observacao,
+      };
+    }
+    if (service.name === "Transporte de material vegetal (DMT ≤ 1km)") {
+      return { ...defaults, ...service };
+    }
+    return merged;
+  });
+
+  const names = new Set(migrated.map((service) => service?.name));
+  INITIAL_SERVICES.forEach((service) => {
+    if (!names.has(service.name)) migrated.push(service);
+  });
+
+  return migrated;
+};
+
+const migrateCurrentItems = (items) =>
+  (Array.isArray(items) ? items : []).map((item) => {
+    if (!item || typeof item !== "object") return item;
+    const service = INITIAL_SERVICES.find((svc) => svc.name === item.desc);
+    if (!service?.modoPrecoDefault || item.modoPreco !== "tecnico") return item;
+    if (service.name !== "Limpeza de Camada Vegetal") return item;
+
+    return {
+      ...item,
+      modoPreco: service.modoPrecoDefault,
+      precoUnitCravado: item.precoUnitCravado || service.precoCravadoSugerido || 0,
+      fontePrecoCravado: item.fontePrecoCravado || `Cotação mercado / RONMA - ${service.name}`,
+      rateiaIndireto: false,
+    };
+  });
 
 // Limpa `volumeEmpolado` (e `volumeEmpoladoPorViagem`) gravado por versões
 // antigas como propriedade do item — agora é sempre derivado em tempo real.
@@ -170,7 +225,7 @@ const migrateQuotations = (storedQuotations) =>
   (storedQuotations || []).map((q) => ({
     ...q,
     indirectPersonnel: migrateIndirectPersonnel(q?.indirectPersonnel),
-    items: Array.isArray(q?.items) ? q.items.map(stripDerivedVolumes) : (q?.items || []),
+    items: migrateCurrentItems(Array.isArray(q?.items) ? q.items.map(stripDerivedVolumes) : (q?.items || [])),
   }));
 
 const migrateState = (state) => {
@@ -179,6 +234,7 @@ const migrateState = (state) => {
     ...state,
     params:     migrateParams(state.params),
     equipment:  migrateEquipment(state.equipment),
+    services:   migrateServices(state.services),
     quotations: migrateQuotations(state.quotations),
   };
 };

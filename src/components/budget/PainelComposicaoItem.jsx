@@ -86,6 +86,36 @@ export default function PainelComposicaoItem({ item, result, paramsDoOrcamento =
 
   if (!item || !result) return null;
 
+  if (item.modoPreco === "preco_cravado") {
+    return (
+      <ModalShell
+        title={`Item com preço cravado · ${item.desc || "(sem descrição)"} · ${fmt(item.quantity, 2)} ${unit}`}
+        subtitle="preço de mercado"
+        onClose={onClose}
+      >
+        <Aviso severidade="info">
+          📌 <b>Item com preço cravado de mercado.</b> Não usa composição
+          técnica detalhada — preço definido por mercado consagrado.
+        </Aviso>
+
+        <div style={{ border: `1px solid ${SS.border}` }}>
+          <CravadoRow label="Preço unitário"   valor={`${fmtBRL(item.precoUnitCravado || 0)} / ${unit}`} />
+          <CravadoRow label="Quantidade"       valor={`${fmt(item.quantity || 0, 2)} ${unit}`} />
+          <CravadoRow label="Total"            valor={fmtBRL((item.quantity || 0) * (item.precoUnitCravado || 0))} emphasize />
+          <CravadoRow label="Fonte do preço"   valor={item.fontePrecoCravado || "(não informada)"} />
+        </div>
+
+        <Aviso severidade="alerta">
+          Itens em preço cravado não absorvem indireto rateado da obra.
+          Para gerenciar lucratividade, ajuste o preço de venda no item
+          ou use composição técnica.
+        </Aviso>
+
+        {validacoes.length > 0 && <PainelValidacoes validacoes={validacoes} />}
+      </ModalShell>
+    );
+  }
+
   return (
     <ModalShell
       title={`Composição de Preço · ${item.desc || "(sem descrição)"} · ${fmt(item.quantity, 2)} ${unit}`}
@@ -171,61 +201,132 @@ export default function PainelComposicaoItem({ item, result, paramsDoOrcamento =
 // ──────────────────────────────────────────────────────────────────
 function PainelVariaveis({ ctx, item, result, unit, paramsDoOrcamento = {} }) {
   const vols = result?.detalhes?.volumes || {};
+  const isArea = ctx.isArea || ctx.tipoComposicao === "m2" || String(unit || "").toUpperCase() === "M2" || String(unit || "").toUpperCase() === "M²";
   const volumeInSitu     = ctx.volumeInSitu     ?? vols.inSitu          ?? item.volumeInSitu      ?? 0;
   const fatorEmpolamento = ctx.fatorEmpolamento ?? vols.fatorEmpolamento ?? item.fatorEmpolamento ?? 1.36;
   const volumeEmpolado   = ctx.volumeEmpolado   ?? vols.empolado        ?? (volumeInSitu * fatorEmpolamento);
   const prazoMeses       = toPositiveNumber(ctx.prazoMeses, toPositiveNumber(item.prazoMeses, toPositiveNumber(paramsDoOrcamento.prazo_meses, 0)));
   const diasUteisMes     = toPositiveNumber(ctx.diasUteisMes, toPositiveNumber(item.diasUteisMes, toPositiveNumber(paramsDoOrcamento.dias_uteis_mes, 0)));
   const horasDia         = toPositiveNumber(ctx.horasDia, toPositiveNumber(item.horasDia, toPositiveNumber(paramsDoOrcamento.horas_dia, 0)));
-  const horasProjeto     = ctx.horasProjeto ?? (diasUteisMes * horasDia * prazoMeses);
+  const horasProjeto     = ctx.horasGeraisContrato ?? ctx.horasProjeto ?? (diasUteisMes * horasDia * prazoMeses);
+  const diasUteisItem    = ctx.diasUteisItem ?? 0;
+  const horasItem        = ctx.horasItem ?? 0;
   const producaoConjunto = ctx.producaoConjuntoHora ?? 0;
   const horasMaquina     = ctx.horasMaquinaNecessarias ?? 0;
 
   const cells = [
     {
-      label: "Volume in situ",
+      label: isArea ? "Área do item" : "Volume in situ",
       valor: volumeInSitu,
       unidade: unit,
       tip: "informado pelo usuário",
     },
-    {
-      label: "Fator empolamento",
-      valor: fatorEmpolamento,
-      unidade: "×",
-      tip: "parâmetro (editável por orçamento)",
-      decimais: 3,
-      kind: "key",
-    },
-    {
-      label: "Volume empolado",
-      valor: volumeEmpolado,
-      unidade: unit,
-      tip: `= ${fmt(volumeInSitu, 2)} × ${fmt(fatorEmpolamento, 3)}`,
-      kind: "ref",
-    },
+    ...(isArea && ctx.modoPreco ? [
+      {
+        label: "Modo de preço",
+        valor: ctx.modoPreco === "preco_mercado" ? "preço de mercado" : "composição técnica",
+        unidade: "",
+        tip: ctx.modoPreco === "preco_mercado"
+          ? "área × preço unitário informado"
+          : "composição por produtividade, frota e parcelas técnicas",
+        kind: "key",
+      },
+    ] : []),
+    ...(isArea ? [
+      {
+        label: "Volume empolado",
+        valor: "não aplicável",
+        unidade: "",
+        tip: "serviços em área não usam empolamento",
+        kind: "muted",
+      },
+    ] : [
+      {
+        label: "Fator empolamento",
+        valor: fatorEmpolamento,
+        unidade: "×",
+        tip: "parâmetro (editável por orçamento)",
+        decimais: 3,
+        kind: "key",
+      },
+      {
+        label: "Volume empolado",
+        valor: volumeEmpolado,
+        unidade: unit,
+        tip: `= ${fmt(volumeInSitu, 2)} × ${fmt(fatorEmpolamento, 3)}`,
+        kind: "ref",
+      },
+    ]),
     { label: "Prazo",          valor: prazoMeses,   unidade: "meses", decimais: 0, tip: "informado pelo usuário" },
     { label: "Dias úteis/mês", valor: diasUteisMes, unidade: "dias",  decimais: 0, tip: "parâmetro" },
     { label: "Horas/dia",      valor: horasDia,     unidade: "h",     decimais: 0, tip: "parâmetro" },
     {
-      label: "Horas projeto",
+      label: "Horas gerais do contrato",
       valor: horasProjeto,
       unidade: "h",
       decimais: 0,
       tip: `= ${diasUteisMes} × ${horasDia} × ${prazoMeses}`,
       kind: "ref",
     },
+    ...(isArea ? [
+      {
+        label: "Dias úteis do item",
+        valor: diasUteisItem,
+        unidade: "dias",
+        tip: ctx.modoCalculoPrazoItem === "manual" ? "prazo informado no item" : "área ÷ produtividade diária",
+      },
+      {
+        label: "Horas do item",
+        valor: horasItem,
+        unidade: "h",
+        tip: `= ${fmt(diasUteisItem, 2)} × ${fmt(ctx.horasDiaItem || horasDia, 2)} h/dia`,
+        kind: "ref",
+      },
+    ] : []),
     {
       label: "Produção conjunto",
       valor: producaoConjunto,
       unidade: `${unit}/h`,
-      tip: "Σ produtividade base × qty (sem fatores)",
+      tip: isArea ? "produtividade informada em m²/h" : "Σ produtividade base × qty (sem fatores)",
     },
+    ...(isArea ? [
+      {
+        label: "Produtividade original",
+        valor: ctx.produtividadeOriginal || 0,
+        unidade: ctx.produtividadeUnidadeOriginal === "dia" ? `${unit}/dia` : `${unit}/h`,
+        tip: "valor informado pelo usuário",
+      },
+      {
+        label: "Produtividade diária",
+        valor: ctx.produtividadeDiaria || (producaoConjunto * horasDia),
+        unidade: `${unit}/dia`,
+        tip: `= ${fmt(ctx.produtividadeRealPorEquipamento || producaoConjunto, 2)} × ${fmt(ctx.horasDiaItem || horasDia, 0)} h/dia × ${fmt(ctx.quantidadeEquipamentos || 1, 2)} eq`,
+      },
+      {
+        label: "Produtividade convertida",
+        valor: ctx.produtividadeConvertidaHora || producaoConjunto,
+        unidade: `${unit}/h`,
+        tip: ctx.produtividadeUnidadeOriginal === "dia" ? "produtividade diária ÷ horas/dia" : "igual ao valor informado",
+      },
+      {
+        label: "Produtividade real",
+        valor: ctx.produtividadeRealPorEquipamento || 0,
+        unidade: `${unit}/h/eq`,
+        tip: `= convertida × eficiência (${fmt(ctx.fatorEficiencia || 1, 2)}) × logística (${fmt(ctx.fatorLogistica || 1, 2)})`,
+      },
+      {
+        label: "Qtd equipamentos",
+        valor: ctx.quantidadeEquipamentos || 0,
+        unidade: "eq",
+        tip: "soma das quantidades nas linhas de equipamento",
+      },
+    ] : []),
     {
       label: "Horas-máquina",
       valor: horasMaquina,
       unidade: "h",
       decimais: 2,
-      tip: `= ${fmt(volumeInSitu, 2)} ÷ ${fmt(producaoConjunto, 2)}`,
+      tip: `= ${fmt(volumeInSitu, 2)} ${isArea ? "m²" : unit} ÷ ${fmt(producaoConjunto, 2)} ${unit}/h`,
       kind: "ref",
     },
   ];
@@ -291,7 +392,7 @@ function VarCell({ label, valor, unidade, decimais = 2, tip, kind = "formula" })
           gap: 6,
         }}
       >
-        <span>{fmt(valor, decimais)}</span>
+        <span>{typeof valor === "string" ? valor : fmt(valor, decimais)}</span>
         <span style={{ fontSize: 11, color: SS.mutedText, fontWeight: 500 }}>{unidade}</span>
       </div>
       {tip && (
@@ -435,6 +536,7 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
   const dieselExcecao = eq.volume_ref_diesel_tipo === "in_situ";
   const usaFallbackManut = !(eq.custoManutencaoDireto > 0);
   const prodZero = !(eq.baseProductivity > 0);
+  const isArea = ctx.isArea || ctx.tipoComposicao === "m2";
   const volumeInSitu = ctx.volumeInSitu ?? 0;
 
   // Valores precisos (sem arredondamento) — vindos do costEngine. Fórmulas
@@ -519,14 +621,14 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
               [
                 "🔧 Manutenção",
                 fmtBRL(eq.manutencao_hora),
-                <>{fmt(eq.horas_manutencao, 0)} <Sup label="horas-projeto">ⓟ</Sup></>,
+                <>{fmt(eq.horas_manutencao, 2)} <Sup label={eq.horas_manutencao_base === "maquina" ? "horas-máquina" : "horas-projeto"}>{eq.horas_manutencao_base === "maquina" ? "ⓜ" : "ⓟ"}</Sup></>,
                 fmt(eq.qty, 0),
                 fmtBRL(eq.total_manutencao),
               ],
               [
                 "👷 Mão de obra",
                 fmtBRL(eq.operador_hora),
-                <>{fmt(eq.horas_mo, 0)} <Sup label="horas-projeto">ⓟ</Sup></>,
+                <>{fmt(eq.horas_mo, 2)} <Sup label={eq.horas_mo_base === "maquina" ? "horas-máquina" : "horas-projeto"}>{eq.horas_mo_base === "maquina" ? "ⓜ" : "ⓟ"}</Sup></>,
                 fmt(eq.qty, 0),
                 fmtBRL(eq.total_mo),
               ],
@@ -540,13 +642,18 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
             ]}
           />
           <div style={{ fontSize: 10.5, color: SS.mutedText, marginTop: 4, fontFamily: SS.fontUI }}>
-            ⓜ horas-máquina necessárias = volumeInSitu ÷ Σ produção base ·{" "}
-            ⓟ horas-projeto = dias × horas/dia × meses
+            ⓜ horas-máquina necessárias = {isArea ? "área ÷ produtividade" : "volumeInSitu ÷ Σ produção base"} ·{" "}
+            ⓟ horas gerais do contrato = meses × dias úteis/mês × horas/dia · execução do item = dias úteis do item × horas/dia do item
           </div>
         </div>
 
         {/* ── Rateio em R$/m³ ── */}
         <div>
+          {eq.horas_maquina_origem && (
+            <div style={{ fontSize: 10.5, color: SS.mutedText, marginBottom: 6, fontFamily: SS.fontUI }}>
+              Origem das horas-mÃ¡quina do diesel: {eq.horas_maquina_origem}
+            </div>
+          )}
           <SubTitle>Rateio em R$/{unit}</SubTitle>
           <SimpleTable
             head={["Parcela", "Total R$", "÷ Volume de referência", "Tipo", `R$/${unit}`]}
@@ -1194,6 +1301,25 @@ function Aviso({ severidade = "info", children }) {
     >
       <span style={{ fontSize: 14, fontWeight: 800 }}>{c.icon}</span>
       <span>{children}</span>
+    </div>
+  );
+}
+
+function CravadoRow({ label, valor, emphasize }) {
+  return (
+    <div style={{
+      display: "flex",
+      justifyContent: "space-between",
+      padding: "10px 14px",
+      borderBottom: `1px solid ${SS.gridLine}`,
+      background: emphasize ? SS.bgHeader : SS.bg,
+      fontFamily: SS.fontUI,
+      fontSize: 13,
+      fontWeight: emphasize ? 800 : 500,
+      color: emphasize ? SS.accentGreen : SS.formulaText,
+    }}>
+      <span>{label}</span>
+      <span style={{ fontFamily: SS.fontMono }}>{valor}</span>
     </div>
   );
 }

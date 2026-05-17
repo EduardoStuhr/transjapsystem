@@ -431,6 +431,7 @@ function ResumoKPIs({ custoUnitario, precoUnitario, lucroUnitario, margem, unit,
 // ──────────────────────────────────────────────────────────────────
 function PainelVariaveisOrcamento({ ctx, unit }) {
   if (!ctx) return null;
+  const isArea = ctx.isArea || ctx.tipoComposicao === "m2" || String(unit || "").toUpperCase() === "M2" || String(unit || "").toUpperCase() === "M²";
   const fmtMR = (v) => `${fmt(v, 2)} ${unit || "m³"}`;
   return (
     <div style={{ ...styles.block, ...styles.fullSpan }}>
@@ -443,17 +444,42 @@ function PainelVariaveisOrcamento({ ctx, unit }) {
       </div>
       <div style={styles.blockBody}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-          <KV label="Volume in situ" value={fmtMR(ctx.volumeInSitu)} hint="informado pelo usuário" />
-          <KV label="Fator empolamento" value={`${fmt(ctx.fatorEmpolamento, 3)}×`} hint="parâmetro" />
-          <KV label="Volume empolado" value={fmtMR(ctx.volumeEmpolado)}
-              hint={`= ${fmt(ctx.volumeInSitu, 2)} × ${fmt(ctx.fatorEmpolamento, 3)}`} accent />
+          <KV label={isArea ? "Área do item" : "Volume in situ"} value={fmtMR(ctx.volumeInSitu)} hint="informado pelo usuário" />
+          {isArea ? (
+            <KV label="Volume empolado" value="não aplicável" hint="serviços em área não usam empolamento" />
+          ) : (
+            <>
+              <KV label="Fator empolamento" value={`${fmt(ctx.fatorEmpolamento, 3)}×`} hint="parâmetro" />
+              <KV label="Volume empolado" value={fmtMR(ctx.volumeEmpolado)}
+                  hint={`= ${fmt(ctx.volumeInSitu, 2)} × ${fmt(ctx.fatorEmpolamento, 3)}`} accent />
+            </>
+          )}
           <KV label="Prazo" value={`${fmt(ctx.prazoMeses, 0)} meses`} />
           <KV label="Dias úteis / mês" value={`${fmt(ctx.diasUteisMes, 0)}`} />
           <KV label="Horas / dia" value={`${fmt(ctx.horasDia, 0)} h`} />
-          <KV label="Horas projeto" value={`${fmt(ctx.horasProjeto, 0)} h`}
+          <KV label="Horas gerais do contrato" value={`${fmt(ctx.horasGeraisContrato ?? ctx.horasProjeto, 0)} h`}
               hint={`= ${fmt(ctx.diasUteisMes, 0)} × ${fmt(ctx.horasDia, 0)} × ${fmt(ctx.prazoMeses, 0)}`} />
+          {isArea && (
+            <>
+              <KV label="Dias úteis do item" value={`${fmt(ctx.diasUteisItem || 0, 2)} dias`}
+                  hint={ctx.modoCalculoPrazoItem === "manual" ? "prazo informado no item" : "área ÷ produtividade diária"} />
+              <KV label="Horas do item" value={`${fmt(ctx.horasItem || 0, 2)} h`}
+                  hint={`= ${fmt(ctx.diasUteisItem || 0, 2)} × ${fmt(ctx.horasDiaItem || ctx.horasDia, 2)} h/dia`} />
+            </>
+          )}
           <KV label="Produção conjunto" value={`${fmt(ctx.producaoConjuntoHora, 2)} ${unit || "m³"}/h`}
-              hint="Σ baseProductivity × qty (sem fatores)" />
+              hint={isArea ? "produtividade informada em m²/h" : "Σ baseProductivity × qty (sem fatores)"} />
+          {isArea && (
+            <>
+              <KV label="Produtividade original" value={`${fmt(ctx.produtividadeOriginal || 0, 2)} ${ctx.produtividadeUnidadeOriginal === "dia" ? `${unit || "m²"}/dia` : `${unit || "m²"}/h`}`} />
+              <KV label="Produtividade diária" value={`${fmt(ctx.produtividadeDiaria || (ctx.producaoConjuntoHora * ctx.horasDia), 2)} ${unit || "m²"}/dia`}
+                  hint={`= ${fmt(ctx.producaoConjuntoHora, 2)} × ${fmt(ctx.horasDia, 0)} h/dia`} />
+              <KV label="Produtividade convertida" value={`${fmt(ctx.produtividadeConvertidaHora || ctx.producaoConjuntoHora, 2)} ${unit || "m²"}/h`} />
+              <KV label="Produtividade real" value={`${fmt(ctx.produtividadeRealPorEquipamento || 0, 2)} ${unit || "m²"}/h/eq`}
+                  hint="convertida × eficiência × logística" />
+              <KV label="Qtd equipamentos" value={`${fmt(ctx.quantidadeEquipamentos || 0, 2)}`} />
+            </>
+          )}
           <KV label="Horas-máquina" value={`${fmt(ctx.horasMaquinaNecessarias, 2)} h`}
               hint={`= ${fmt(ctx.volumeInSitu, 2)} ÷ ${fmt(ctx.producaoConjuntoHora, 2)}`} accent />
         </div>
