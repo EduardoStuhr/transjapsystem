@@ -1211,8 +1211,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   // item e no total venda/custo do item.
   const transporteAgregado = calcTransporteAgregado(item, params);
   if (transporteAgregado.enabled) {
-    custo_unitario += transporteAgregado.custoUnitarioInSitu;
-    preco_unitario += transporteAgregado.precoUnitarioInSitu;
+    custo_unitario += transporteAgregado.custoUnitarioTransporte;
+    preco_unitario += transporteAgregado.precoUnitarioTransporte;
     totalCustoEquipamentosObra += transporteAgregado.custoTotalFrete;
     totalPrecoEquipamentosObra += transporteAgregado.totalVendaTransporte;
 

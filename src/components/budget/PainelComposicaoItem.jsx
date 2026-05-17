@@ -725,6 +725,7 @@ function CardComposicaoEquipamento({ eq, ctx, unit }) {
 function CardTransporteAgregado({ eq, unit }) {
   const t = eq.transporteAgregado || {};
   const porViagem = t.modoFrete === "por_viagem";
+  const usaUnitarioEmpolado = t.modoFrete === "planilha_m3_empolado";
 
   const linhasFormula = [];
   if (t.modoFrete === "planilha_m3_empolado") {
@@ -841,7 +842,7 @@ function CardTransporteAgregado({ eq, unit }) {
             emphasize
           />
           <KpiCell
-            label="Custo unit. equiv. in situ"
+            label={usaUnitarioEmpolado ? "Custo unit. m³ empolado (entra no item)" : "Custo unit. equiv. in situ"}
             valor={`${fmtBRLPreciso(t.custoUnitarioTransporte ?? t.custoUnitarioInSitu, 4)}/${unit}`}
             kind="formula"
           />
@@ -851,7 +852,7 @@ function CardTransporteAgregado({ eq, unit }) {
             kind="formula"
           />
           <KpiCell
-            label="Preço unit. equiv. in situ"
+            label={usaUnitarioEmpolado ? "Preço unit. venda (entra no item)" : "Preço unit. equiv. in situ"}
             valor={`${fmtBRLPreciso(t.precoUnitarioTransporte ?? t.precoUnitarioInSitu, 4)}/${unit}`}
             kind="ref"
             emphasize

@@ -119,6 +119,29 @@ describe("Transporte Agregado — espelhamento da planilha RONMA", () => {
     expect(d.precoUnitInSitu).toBeCloseTo(3598539.35 / 537228.53, 4);
   });
 
+  test("modo planilha usa preco de venda empolado como unitario que entra no item", () => {
+    const item = {
+      fatorEmpolamento: 1.36,
+      transporteAgregado: {
+        enabled: true,
+        modoFrete: "por_m3_planilha",
+        valorFretePorM3OuViagem: 1.65,
+        fatorEmpolamentoTransporte: 0.40,
+        perdaCarregamentoPct: 0.10,
+        volumeBaseTransporte: 537228.53,
+        volumeBaseTipo: "in_situ",
+        markupTransporte: 1.99,
+        volumeInSituPorViagem: 15,
+      },
+    };
+    const r = calcTransporteAgregado(item);
+
+    expect(r.custoUnitarioTransporte).toBeCloseTo(2.475, 4);
+    expect(r.precoUnitarioTransporte).toBeCloseTo(4.92525, 4);
+    expect(r.precoUnitarioInSitu).toBeCloseTo(6.6983, 4);
+    expect(r.volumeBaseTotalizacao).toBeCloseTo(r.volumeEmpoladoTotal, 4);
+  });
+
   test("totalVendaTransporte do engine = decomposicaoPlanilha.totalVendaGeral", () => {
     const item = {
       fatorEmpolamento: 1.36,

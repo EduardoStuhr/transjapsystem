@@ -137,6 +137,19 @@ export const calcTransporteAgregado = (item = {}, params = {}) => {
   const precoUnitarioEmpolado = custoUnitarioEmpolado * markup;
   const precoUnitarioInSitu = custoUnitarioInSitu * markup;
   const totalVendaTransporte = custoTotalFrete * markup;
+  const usaUnitarioEmpoladoNaComposicao = n.modoFrete === "planilha_m3_empolado";
+  const custoUnitarioTransporte = usaUnitarioEmpoladoNaComposicao
+    ? custoUnitarioEmpolado
+    : custoUnitarioInSitu;
+  const precoUnitarioTransporte = usaUnitarioEmpoladoNaComposicao
+    ? precoUnitarioEmpolado
+    : precoUnitarioInSitu;
+  const volumeBaseTotalizacao = usaUnitarioEmpoladoNaComposicao
+    ? volumeEmpoladoTotal
+    : volumeBaseInSitu;
+  const volumeBaseTotalizacaoTipo = usaUnitarioEmpoladoNaComposicao
+    ? "empolado"
+    : "in_situ";
   const decomposicaoPlanilha = n.modoFrete === "planilha_m3_empolado" ? {
     // CUSTO
     parcelaBase: freteBaseUnitario,
@@ -225,14 +238,16 @@ export const calcTransporteAgregado = (item = {}, params = {}) => {
 
     custoUnitarioEmpolado,
     custoUnitarioInSitu,
-    custoUnitarioTransporte: custoUnitarioInSitu,
+    custoUnitarioTransporte,
     custoTotalFrete,
 
     markupTransporte: markup,
     precoUnitarioEmpolado,
     precoUnitarioInSitu,
-    precoUnitarioTransporte: precoUnitarioInSitu,
+    precoUnitarioTransporte,
     totalVendaTransporte,
+    volumeBaseTotalizacao,
+    volumeBaseTotalizacaoTipo,
     decomposicaoPlanilha,
 
     formulaAuditoria,
@@ -260,21 +275,21 @@ export const buildLinhaAuditoriaTransporteAgregado = (calc, item = {}) => {
     indireto_R$_m3: 0,
 
     // Mostramos o custo equivalente in situ se o orçamento estiver nesse padrão
-    custo_R$_m3: calc.custoUnitarioInSitu,
+    custo_R$_m3: calc.custoUnitarioTransporte,
     markup: calc.markupTransporte,
-    preco_R$_m3: calc.precoUnitarioInSitu,
+    preco_R$_m3: calc.precoUnitarioTransporte,
 
-    volume_base_total: calc.volumeBaseInSitu,
-    volume_base_tipo: "transporte_agregado",
+    volume_base_total: calc.volumeBaseTotalizacao,
+    volume_base_tipo: calc.volumeBaseTotalizacaoTipo || "transporte_agregado",
 
     total_custo_maquina_obra_R$: calc.custoTotalFrete,
     total_maquina_obra_R$: calc.totalVendaTransporte,
 
     // Campos precisos
-    custo_R$_m3_preciso: calc.custoUnitarioInSitu,
+    custo_R$_m3_preciso: calc.custoUnitarioTransporte,
     markup_preciso: calc.markupTransporte,
-    preco_R$_m3_preciso: calc.precoUnitarioInSitu,
-    volume_base_total_preciso: calc.volumeBaseInSitu,
+    preco_R$_m3_preciso: calc.precoUnitarioTransporte,
+    volume_base_total_preciso: calc.volumeBaseTotalizacao,
     total_maquina_obra_preciso_R$: calc.totalVendaTransporte,
 
     transporteAgregado: calc,
