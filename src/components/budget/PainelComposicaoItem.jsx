@@ -39,6 +39,7 @@ const VOLUME_TIPO_LABEL = {
   transporte: "transporte",
   transporte_agregado: "transporte agregado",
   in_situ_fallback: "in situ fallback",
+  area: "ÁREA",
 };
 
 const DEPRECATED_VOLUME_TIPO_LABEL = {
@@ -46,11 +47,25 @@ const DEPRECATED_VOLUME_TIPO_LABEL = {
   empolado: "empolado",
 };
 
-export default function PainelComposicaoItem({ item, result, onClose }) {
+const toNumber = (value, fallback = 0) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const toPositiveNumber = (value, fallback = 0) => {
+  const n = toNumber(value, 0);
+  return n > 0 ? n : fallback;
+};
+
+export default function PainelComposicaoItem({ item, result, paramsDoOrcamento = {}, onClose }) {
   const aud  = result?.detalhes?.auditoria || {};
   const unit = item?.unit || "m³";
   const isNovo = aud.tipo === "ok-novo";
   const isVB   = aud.tipo === "VB";
+  const prazoEfetivo = toPositiveNumber(item?.prazoMeses, toPositiveNumber(paramsDoOrcamento?.prazo_meses, 0));
+  const diasEfetivos = toPositiveNumber(item?.diasUteisMes, toPositiveNumber(paramsDoOrcamento?.dias_uteis_mes, 0));
+  const horasEfetivas = toPositiveNumber(item?.horasDia, toPositiveNumber(paramsDoOrcamento?.horas_dia, 0));
+  const usaModeloNovoPorPrazo = prazoEfetivo > 0 && diasEfetivos > 0 && horasEfetivas > 0;
 
   const ctx = aud.contexto || {};
   const eqs = useMemo(
@@ -77,7 +92,7 @@ export default function PainelComposicaoItem({ item, result, onClose }) {
       subtitle="auditoria do item"
       onClose={onClose}
     >
-      {!isNovo && !isVB && (
+      {!isNovo && !isVB && !usaModeloNovoPorPrazo && (
         <Aviso severidade="alerta">
           Item ainda no modelo legado. Para ver a composição detalhada por
           equipamento (markup por categoria, rateio por tipo de volume),
@@ -86,7 +101,7 @@ export default function PainelComposicaoItem({ item, result, onClose }) {
         </Aviso>
       )}
 
-      <PainelVariaveis ctx={ctx} item={item} result={result} unit={unit} />
+      <PainelVariaveis ctx={ctx} item={item} result={result} unit={unit} paramsDoOrcamento={paramsDoOrcamento} />
 
       <PainelSeletor
         equipamentos={eqs}
@@ -154,14 +169,14 @@ export default function PainelComposicaoItem({ item, result, onClose }) {
 // ──────────────────────────────────────────────────────────────────
 // 1 — Painel de variáveis do orçamento
 // ──────────────────────────────────────────────────────────────────
-function PainelVariaveis({ ctx, item, result, unit }) {
+function PainelVariaveis({ ctx, item, result, unit, paramsDoOrcamento = {} }) {
   const vols = result?.detalhes?.volumes || {};
   const volumeInSitu     = ctx.volumeInSitu     ?? vols.inSitu          ?? item.volumeInSitu      ?? 0;
   const fatorEmpolamento = ctx.fatorEmpolamento ?? vols.fatorEmpolamento ?? item.fatorEmpolamento ?? 1.36;
   const volumeEmpolado   = ctx.volumeEmpolado   ?? vols.empolado        ?? (volumeInSitu * fatorEmpolamento);
-  const prazoMeses       = ctx.prazoMeses   ?? item.prazoMeses   ?? 0;
-  const diasUteisMes     = ctx.diasUteisMes ?? item.diasUteisMes ?? 0;
-  const horasDia         = ctx.horasDia     ?? item.horasDia     ?? 0;
+  const prazoMeses       = toPositiveNumber(ctx.prazoMeses, toPositiveNumber(item.prazoMeses, toPositiveNumber(paramsDoOrcamento.prazo_meses, 0)));
+  const diasUteisMes     = toPositiveNumber(ctx.diasUteisMes, toPositiveNumber(item.diasUteisMes, toPositiveNumber(paramsDoOrcamento.dias_uteis_mes, 0)));
+  const horasDia         = toPositiveNumber(ctx.horasDia, toPositiveNumber(item.horasDia, toPositiveNumber(paramsDoOrcamento.horas_dia, 0)));
   const horasProjeto     = ctx.horasProjeto ?? (diasUteisMes * horasDia * prazoMeses);
   const producaoConjunto = ctx.producaoConjuntoHora ?? 0;
   const horasMaquina     = ctx.horasMaquinaNecessarias ?? 0;

@@ -27,6 +27,10 @@ const toNum = (v, fallback = 0) => {
   const n = typeof v === "string" ? parseFloat(v.replace(",", ".")) : parseFloat(v);
   return Number.isFinite(n) ? n : fallback;
 };
+const toPositiveNum = (v, fallback = 0) => {
+  const n = toNum(v, 0);
+  return n > 0 ? n : fallback;
+};
 
 export const getMarkupPorCategoria = (params = {}, categoria) => {
   const tabela = params?.markup_por_categoria || ASSUMPTIONS.markupPorCategoria;
@@ -133,31 +137,52 @@ const resolveVolumeRefTipo = (rawTipo) =>
 const getVolumeRefValor = (tipo, volumes) =>
   tipo === "in_situ" ? volumes.volumeInSitu : volumes.volumeEmpolado;
 
-const getVolumeRefDieselPorCategoria = (categoria, params, volumes) => {
-  const tabela = params?.volume_ref_diesel_por_categoria || {};
-  const tipo = resolveVolumeRefTipo(tabela?.[categoria] ?? tabela?._default ?? "empolado");
-  return { tipo, valor: getVolumeRefValor(tipo, volumes) };
+const isItemArea = (item = {}) => {
+  const unitItem = String(item?.unit || "").toUpperCase();
+  return unitItem === "M2" || unitItem === "M²";
 };
 
-const getVolumeRefManutencaoPorCategoria = (categoria, params, volumes) => {
+const volumeRefArea = (volumes) => ({
+  tipo: "area",
+  label: "ÁREA",
+  valor: toNum(volumes?.volumeInSitu, 0),
+});
+
+const buildVolumeRef = (tipo, volumes) => ({
+  tipo,
+  label: tipo === "in_situ" ? "IN SITU" : "EMPOLADO",
+  valor: getVolumeRefValor(tipo, volumes),
+});
+
+const getVolumeRefDieselPorCategoria = (categoria, params, volumes, item) => {
+  if (isItemArea(item)) return volumeRefArea(volumes);
+  const tabela = params?.volume_ref_diesel_por_categoria || {};
+  const tipo = resolveVolumeRefTipo(tabela?.[categoria] ?? tabela?._default ?? "empolado");
+  return buildVolumeRef(tipo, volumes);
+};
+
+const getVolumeRefManutencaoPorCategoria = (categoria, params, volumes, item) => {
+  if (isItemArea(item)) return volumeRefArea(volumes);
   const tabela = params?.volume_ref_manutencao_por_categoria || {};
   const tipo = resolveVolumeRefTipo(
     tabela?.[categoria] ?? tabela?._default ?? params?.volume_ref_manutencao ?? "empolado"
   );
-  return { tipo, valor: getVolumeRefValor(tipo, volumes) };
+  return buildVolumeRef(tipo, volumes);
 };
 
-const getVolumeRefMOPorCategoria = (categoria, params, volumes) => {
+const getVolumeRefMOPorCategoria = (categoria, params, volumes, item) => {
+  if (isItemArea(item)) return volumeRefArea(volumes);
   const tabela = params?.volume_ref_mo_por_categoria || {};
   const tipo = resolveVolumeRefTipo(
     tabela?.[categoria] ?? tabela?._default ?? params?.volume_ref_mo ?? "empolado"
   );
-  return { tipo, valor: getVolumeRefValor(tipo, volumes) };
+  return buildVolumeRef(tipo, volumes);
 };
 
-const getVolumeRefIndireto = (params, volumes) => {
+const getVolumeRefIndireto = (params, volumes, item) => {
+  if (isItemArea(item)) return volumeRefArea(volumes);
   const tipo = resolveVolumeRefTipo(params?.volume_ref_indireto ?? "in_situ");
-  return { tipo, valor: getVolumeRefValor(tipo, volumes) };
+  return buildVolumeRef(tipo, volumes);
 };
 
 const totalizaParcelaNoVolume = (totalParcela, volumeRef, volumeTotalizacao) => {
@@ -229,7 +254,7 @@ const calcDieselUnitarioPorEquipamento = ({
   fallbackHoras,
 }) => {
   // Denominador específico do diesel (Patrol exceção: in_situ).
-  const dieselRef = getVolumeRefDieselPorCategoria(eq?.category, params, volumes);
+  const dieselRef = getVolumeRefDieselPorCategoria(eq?.category, params, volumes, item);
   const denominador = dieselRef.valor;
   const viagensHora = getViagensPorHora(eq);
   const horasDia = getHorasDiaItem(item, params);
@@ -249,7 +274,11 @@ const calcDieselUnitarioPorEquipamento = ({
     valorUnitario: denominador > 0 ? dieselTotal / denominador : 0,
     denominador,
     denominadorTipo: dieselRef.tipo,
-    baseRateio: dieselRef.tipo === "empolado" ? "m3 empolado" : "m3 in situ",
+    baseRateio: dieselRef.tipo === "area"
+      ? "area"
+      : dieselRef.tipo === "empolado"
+        ? "m3 empolado"
+        : "m3 in situ",
     usaCicloViagens,
     viagensHora,
     horasDia,
@@ -660,9 +689,9 @@ const buildEquipamentosAuditoria = (item, equipmentMap, params, soil, indiretoMo
 const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], context = {}) => {
   const { volumeInSitu, fatorEmpolamento, volumeEmpolado } = getItemVolumes(item, params);
 
-  const prazoMeses = toNum(item.prazoMeses, toNum(params?.prazo_meses, 1));
-  const diasUteisMes = toNum(item.diasUteisMes, toNum(params?.dias_uteis_mes, 22));
-  const horasDia = toNum(item.horasDia, toNum(params?.horas_dia, 9));
+  const prazoMeses = toPositiveNum(item.prazoMeses, toPositiveNum(params?.prazo_meses, 1));
+  const diasUteisMes = toPositiveNum(item.diasUteisMes, toPositiveNum(params?.dias_uteis_mes, 22));
+  const horasDia = toPositiveNum(item.horasDia, toPositiveNum(params?.horas_dia, 9));
   const horasProjetoCalculadas = diasUteisMes * horasDia * prazoMeses;
   const horasProjetoContexto = toNum(context?.horasProjeto, 0);
   const horasProjeto = horasProjetoContexto > 0 ? horasProjetoContexto : horasProjetoCalculadas;
@@ -682,12 +711,16 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     numAuxiliares,
   } = executorInfo;
 
-  const producaoConjuntoHora = linhasParaProducao.reduce((s, l) => {
-    const eq = equipmentMap[l.equipmentId];
-    const q = toNum(l.quantity ?? l.qty, 0);
-    const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
-    return s + prod * q;
-  }, 0);
+  const produtividadeItem = toNum(item.adjustedProductivity, toNum(item.baseProductivity, 0));
+  const usaProdutividadeDoItem = isItemArea(item) && produtividadeItem > 0;
+  const producaoConjuntoHora = usaProdutividadeDoItem
+    ? produtividadeItem
+    : linhasParaProducao.reduce((s, l) => {
+      const eq = equipmentMap[l.equipmentId];
+      const q = toNum(l.quantity ?? l.qty, 0);
+      const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
+      return s + prod * q;
+    }, 0);
 
   const horasMaquinaNecessarias = producaoConjuntoHora > 0
     ? volumeInSitu / producaoConjuntoHora
@@ -709,7 +742,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   const numOperadoresFrota = numOperadoresFrotaContexto > 0
     ? numOperadoresFrotaContexto
     : numOperadoresFrotaItem;
-  const indiretoBreakdown = calcIndiretoRateadoPorM3(
+  const rateiaIndireto = item.rateiaIndireto !== false;
+  const indiretoBreakdownCalculado = calcIndiretoRateadoPorM3(
     params,
     indirectPersonnelOrcamento,
     numOperadoresFrota,
@@ -717,6 +751,14 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     horasProjeto,
     { withBreakdown: true },
   );
+  const indiretoBreakdown = rateiaIndireto
+    ? indiretoBreakdownCalculado
+    : {
+      ...indiretoBreakdownCalculado,
+      totalIndiretoPorEquipamento: 0,
+      indiretoPorEquipamentoR$M3: 0,
+      rateioDesligadoNoItem: true,
+    };
   const indiretoR$M3PorPessoa = indiretoBreakdown.indiretoPorEquipamentoR$M3;
   let custo_unitario = 0;
   let preco_unitario = 0;
@@ -735,7 +777,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   const itemVolumeBase = volumeAuxiliarInSitu > 0
     ? { ...item, volumeAterroInSitu: item.volumeAterroInSitu ?? volumeAuxiliarInSitu }
     : item;
-  const refIndireto = getVolumeRefIndireto(params, volumes);
+  const refIndireto = getVolumeRefIndireto(params, volumes, item);
 
   for (const line of equipmentLines) {
     const qty = toNum(line.quantity ?? line.qty, 0);
@@ -747,9 +789,9 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     // (esses fatores não podem contaminar o rateio de diesel/manut/MO).
     // O cálculo de ciclo (viagensPorHora) é preservado apenas como metadata
     // de auditoria — não substitui mais as horas canônicas.
-    const refDiesel = getVolumeRefDieselPorCategoria(eq?.category, params, volumes);
-    const refManut = getVolumeRefManutencaoPorCategoria(eq?.category, params, volumes);
-    const refMO = getVolumeRefMOPorCategoria(eq?.category, params, volumes);
+    const refDiesel = getVolumeRefDieselPorCategoria(eq?.category, params, volumes, item);
+    const refManut = getVolumeRefManutencaoPorCategoria(eq?.category, params, volumes, item);
+    const refMO = getVolumeRefMOPorCategoria(eq?.category, params, volumes, item);
     const volumeBaseTotal = getVolumeBasePorEquipamentoOuCategoria({
       eq,
       item: itemVolumeBase,
@@ -826,12 +868,20 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       // volume de referência por parcela (com tipo)
       volume_ref_diesel: refDiesel.valor,
       volume_ref_diesel_tipo: refDiesel.tipo,
+      volume_ref_diesel_label: refDiesel.label,
+      volume_ref_diesel_info: refDiesel,
       volume_ref_manutencao: refManut.valor,
       volume_ref_manutencao_tipo: refManut.tipo,
+      volume_ref_manutencao_label: refManut.label,
+      volume_ref_manutencao_info: refManut,
       volume_ref_mo: refMO.valor,
       volume_ref_mo_tipo: refMO.tipo,
+      volume_ref_mo_label: refMO.label,
+      volume_ref_mo_info: refMO,
       volume_ref_indireto: refIndireto.valor,
       volume_ref_indireto_tipo: refIndireto.tipo,
+      volume_ref_indireto_label: refIndireto.label,
+      volume_ref_indireto_info: refIndireto,
 
       // R$/m³
       diesel_R$_m3: dieselEqM3,
@@ -915,6 +965,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       horasDia,
       horasProjeto,
       producaoConjuntoHora,
+      usaProdutividadeDoItem,
       horasMaquinaNecessarias,
       categoriasExecutoras: categoriasExecutorasAuditoria,
       equipamentosExecutores: mapEquipamentosExecutoresAuditoria(linhasParaProducao, equipmentMap),
@@ -923,6 +974,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       numOperadoresFrota,
       indiretoR$M3PorPessoa,
       indiretoBreakdown,
+      rateiaIndireto,
     },
     parcelasPorM3: {
       diesel: dieselR$M3_total,
@@ -938,7 +990,7 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   };
   if (volumeInSitu <= 0) auditoria.validacoes.push({ severidade: "erro", mensagem: "volumeInSitu deve ser > 0." });
   if (producaoConjuntoHora <= 0) auditoria.validacoes.push({ severidade: "erro", mensagem: "Produção conjunta da frota = 0." });
-  if (indirectPersonnelOrcamento.length === 0) auditoria.validacoes.push({ severidade: "alerta", mensagem: "Aloque pelo menos uma pessoa indireta para que o overhead seja contabilizado." });
+  if (rateiaIndireto && indirectPersonnelOrcamento.length === 0) auditoria.validacoes.push({ severidade: "alerta", mensagem: "Aloque pelo menos uma pessoa indireta para que o overhead seja contabilizado." });
   detalheEquipamentos
     .filter(e => e.volume_base_alerta)
     .forEach(e => {
@@ -1012,15 +1064,17 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 };
 
 // Detecta se o item tem o suficiente para o modelo novo da spec.
-const itemUsaModeloNovo = (item) => {
+const itemUsaModeloNovo = (item, params = {}) => {
   if (!item) return false;
   if (item.unit === "VB") return false;
   const vol = toNum(item.volumeInSitu, 0);
   if (vol <= 0) return false;
   const lines = (item.equipmentLines || []).filter(l => toNum(l?.quantity ?? l?.qty, 0) > 0);
   if (lines.length === 0) return false;
-  const prazo = toNum(item.prazoMeses, toNum(item.params?.prazo_meses, 0));
-  if (prazo <= 0) return false;
+  const prazo = toPositiveNum(item.prazoMeses, toPositiveNum(params?.prazo_meses, toPositiveNum(item.params?.prazo_meses, 0)));
+  const dias = toPositiveNum(item.diasUteisMes, toPositiveNum(params?.dias_uteis_mes, toPositiveNum(item.params?.dias_uteis_mes, 0)));
+  const horas = toPositiveNum(item.horasDia, toPositiveNum(params?.horas_dia, toPositiveNum(item.params?.horas_dia, 0)));
+  if (prazo <= 0 || dias <= 0 || horas <= 0) return false;
   return true;
 };
 
@@ -1029,7 +1083,7 @@ const itemUsaModeloNovo = (item) => {
 // Se omitido, cai para `item.indirectPersonnel` por retro-compat.
 export const calcItemCost = (item, equipmentMap, params, indirectPersonnel = [], context = {}) => {
   // Modelo novo (spec) — quando o item tem volumeInSitu, prazoMeses e frota.
-  if (itemUsaModeloNovo(item)) {
+  if (itemUsaModeloNovo(item, params)) {
     return calcItemCostNovo(item, equipmentMap, params, indirectPersonnel, context);
   }
 

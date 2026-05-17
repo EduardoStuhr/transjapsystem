@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Trash2, AlertTriangle, CheckCircle, TrendingUp, Target } from "lucide-react";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
@@ -132,6 +132,7 @@ export default function BudgetItem({
   onDelete,
 }) {
   const [panelOpen, setPanelOpen] = useState(false);
+  const [showRateioHint, setShowRateioHint] = useState(false);
   const result = calcItemCost(item, equipmentMap, params, indirectPersonnel);
   const {
     custo_unitario,
@@ -149,6 +150,24 @@ export default function BudgetItem({
   const setField = (k, v) => onUpdate(index, k, v);
 
   const isVB = item.unit === "VB";
+  useEffect(() => {
+    const servico = services.find(s => s.id === item.serviceId);
+    if (!servico) {
+      setShowRateioHint(false);
+      return;
+    }
+
+    const nomeServico = String(servico.name || "").toLowerCase();
+    const unitServico = String(servico.unit || "").toUpperCase();
+    const sugerirDesligarRateio =
+      nomeServico.includes("limpeza") ||
+      nomeServico.includes("mobiliz") ||
+      nomeServico.includes("desmobil") ||
+      unitServico === "VB";
+
+    setShowRateioHint(sugerirDesligarRateio && item.rateiaIndireto !== false);
+  }, [item.serviceId, item.rateiaIndireto, services]);
+
   const fatorEmpolamentoPadrao = normalizeFatorEmpolamento(params?.fator_empolamento, 1.36);
 
   const volumeInSituItem = toNumber(item.volumeInSitu) || toNumber(item.quantity) || 0;
@@ -399,6 +418,29 @@ export default function BudgetItem({
         />
 
         {!isVB && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: 12, color: S.muted, display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={item.rateiaIndireto !== false}
+                onChange={e => setField("rateiaIndireto", e.target.checked)}
+              />
+              <span>
+                Ratear custos indiretos da obra neste item
+                <span style={{ color: S.muted, marginLeft: 6 }}>
+                  (desmarcar para itens com preço de mercado consagrado)
+                </span>
+              </span>
+            </label>
+            {showRateioHint && (
+              <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>
+                Este serviço normalmente tem preço de mercado e pode não ratear indireto. Considere desmarcar.
+              </div>
+            )}
+          </div>
+        )}
+
+        {!isVB && (
           <EquipmentSelector
             equipmentLines={item.equipmentLines}
             equipmentOptions={equipmentOptions}
@@ -491,6 +533,7 @@ export default function BudgetItem({
               <PainelComposicaoItem
                 item={item}
                 result={result}
+                paramsDoOrcamento={params}
                 volumeEmpoladoObra={volumeEmpoladoObra}
                 totalHorasProjeto={totalHorasProjeto}
                 onClose={() => setPanelOpen(false)}

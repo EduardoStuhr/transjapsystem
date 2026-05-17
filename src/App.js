@@ -10,6 +10,7 @@ import VisualizarOrcamento from "./pages/VisualizarOrcamento";
 import Validacoes from "./pages/Validacoes";
 import MemoriaCalculo from "./pages/MemoriaCalculo";
 import PainelComposicao from "./pages/PainelComposicao";
+import PainelOrcamento from "./pages/PainelOrcamento";
 import PersistencePanel from "./components/PersistencePanel";
 import { useStore } from "./store";
 import { storageManager } from "./services/storage/storageManager";
@@ -70,6 +71,7 @@ export default function App() {
         />
       )}
       {page === "composicao" && <PainelComposicao />}
+      {page === "painelOrcamento" && <PainelOrcamento />}
       {page === "validacoes" && <Validacoes />}
       {page === "memoria"    && <MemoriaCalculo />}
       {viewQ && <VisualizarOrcamento q={viewQ} onClose={() => setViewQ(null)} />}

@@ -6,6 +6,7 @@ import { computeBlocoA } from "../calculations/volumes";
 import { runAllCrossChecks } from "../validation/crossChecks";
 import { calcQuotationTotals } from "../services/costEngine";
 import { ASSUMPTIONS } from "../config/assumptions.config";
+import { buildPrazoParams } from "../utils/quotationPrazo";
 
 // ──────────────────────────────────────────────────────────────────
 // Tela 6 — MEMÓRIA DE CÁLCULO COMPLETA (read-only)
@@ -65,18 +66,22 @@ export default function MemoriaCalculo() {
     [equipment]
   );
 
+  const paramsDoOrcamento = useMemo(
+    () => buildPrazoParams(params, quotation || {}),
+    [params, quotation]
+  );
+
   const totals = useMemo(() => {
     if (!quotation) return null;
-    return calcQuotationTotals(quotation.items || [], equipmentMap, params, {
-      bdi:      quotation.bdi      ?? params?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
+    return calcQuotationTotals(quotation.items || [], equipmentMap, paramsDoOrcamento, {
+      bdi:      quotation.bdi      ?? paramsDoOrcamento?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
       adminPct: quotation.adminPct ?? 0,
       mobilPct: quotation.mobilPct ?? 0,
       riskPct:  quotation.riskPct  ?? 0,
       indirectPersonnel: quotation.indirectPersonnel || [],
-      totalHorasProjeto: quotation.totalHorasProjeto || 0,
       volumeEmpoladoObra: quotation.volumeEmpoladoObra || 0,
     });
-  }, [quotation, equipmentMap, params]);
+  }, [quotation, equipmentMap, paramsDoOrcamento]);
 
   const blocoA = useMemo(() => {
     if (!quotation?.contractData) return null;

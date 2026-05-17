@@ -6,6 +6,7 @@ import { runAllCrossChecks, sumarizarChecks } from "../validation/crossChecks";
 import { computeBlocoA } from "../calculations/volumes";
 import { calcQuotationTotals } from "../services/costEngine";
 import { ASSUMPTIONS } from "../config/assumptions.config";
+import { buildPrazoParams } from "../utils/quotationPrazo";
 
 // ──────────────────────────────────────────────────────────────────
 // Tela 7 — VALIDAÇÕES (cross-checks)
@@ -62,17 +63,17 @@ const buildSnapshotFromQuotation = (q, params, equipment) => {
   if (!q) return {};
 
   const equipmentMap = Object.fromEntries((equipment || []).map((e) => [e.id, e]));
+  const paramsDoOrcamento = buildPrazoParams(params, q);
   const totals = calcQuotationTotals(
     q.items || [],
     equipmentMap,
-    params,
+    paramsDoOrcamento,
     {
-      bdi:      q.bdi      ?? params?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
+      bdi:      q.bdi      ?? paramsDoOrcamento?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
       adminPct: q.adminPct ?? 0,
       mobilPct: q.mobilPct ?? 0,
       riskPct:  q.riskPct  ?? 0,
       indirectPersonnel: q.indirectPersonnel || [],
-      totalHorasProjeto: q.totalHorasProjeto || 0,
       volumeEmpoladoObra: q.volumeEmpoladoObra || 0,
     }
   );
@@ -222,17 +223,20 @@ export default function Validacoes() {
 // Sub-componente: lista validações emitidas por costEngine para cada item.
 function ItemValidations({ quotation, params, equipment }) {
   const equipmentMap = useMemo(() => Object.fromEntries((equipment || []).map((e) => [e.id, e])), [equipment]);
+  const paramsDoOrcamento = useMemo(
+    () => buildPrazoParams(params, quotation || {}),
+    [params, quotation]
+  );
   const totals = useMemo(
-    () => calcQuotationTotals(quotation.items || [], equipmentMap, params, {
-      bdi:      quotation.bdi      ?? params?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
+    () => calcQuotationTotals(quotation.items || [], equipmentMap, paramsDoOrcamento, {
+      bdi:      quotation.bdi      ?? paramsDoOrcamento?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
       adminPct: quotation.adminPct ?? 0,
       mobilPct: quotation.mobilPct ?? 0,
       riskPct:  quotation.riskPct  ?? 0,
       indirectPersonnel: quotation.indirectPersonnel || [],
-      totalHorasProjeto: quotation.totalHorasProjeto || 0,
       volumeEmpoladoObra: quotation.volumeEmpoladoObra || 0,
     }),
-    [quotation, equipmentMap, params]
+    [quotation, equipmentMap, paramsDoOrcamento]
   );
 
   const linhas = (totals.itemsCalc || []).flatMap((it) => {

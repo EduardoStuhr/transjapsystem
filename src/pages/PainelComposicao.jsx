@@ -4,6 +4,7 @@ import ValueCell from "../components/spreadsheet/ValueCell";
 import { SS } from "../styles/spreadsheetTheme";
 import { calcQuotationTotals, getMarkupPorCategoria } from "../services/costEngine";
 import { ASSUMPTIONS } from "../config/assumptions.config";
+import { buildPrazoParams } from "../utils/quotationPrazo";
 import { calcVolumeComEmpolamento } from "../utils/empolamento";
 import { getVolumeBasePorEquipamentoOuCategoria } from "../utils/volumeBase";
 import { fmt, fmtBRL, fmtBRLPreciso, parseBRNumber } from "../utils/format";
@@ -362,18 +363,22 @@ export default function PainelComposicao() {
     [equipment]
   );
 
+  const paramsDoOrcamento = useMemo(
+    () => buildPrazoParams(params, quotation || {}),
+    [params, quotation]
+  );
+
   const totals = useMemo(() => {
     if (!quotation) return null;
-    return calcQuotationTotals(quotation.items || [], equipmentMap, params, {
-      bdi: quotation.bdi ?? params?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
+    return calcQuotationTotals(quotation.items || [], equipmentMap, paramsDoOrcamento, {
+      bdi: quotation.bdi ?? paramsDoOrcamento?.defaultBDI ?? ASSUMPTIONS.comercial.bdiPadrao,
       adminPct: quotation.adminPct ?? 0,
       mobilPct: quotation.mobilPct ?? 0,
       riskPct: quotation.riskPct ?? 0,
       indirectPersonnel: quotation.indirectPersonnel || [],
-      totalHorasProjeto: quotation.totalHorasProjeto || 0,
       volumeEmpoladoObra: quotation.volumeEmpoladoObra || 0,
     });
-  }, [quotation, equipmentMap, params]);
+  }, [quotation, equipmentMap, paramsDoOrcamento]);
 
   const [overrideMarkupEnabled, setOverrideMarkupEnabled] = useState(false);
   const [markup, setMarkup] = useState(params?.markup_por_categoria?._default || ASSUMPTIONS.markupPorCategoria._default);
@@ -391,7 +396,7 @@ export default function PainelComposicao() {
   const itemsCalc = totals?.itemsCalc || [];
 
   const grandTotal = itemsCalc.reduce((acc, item) => {
-    const { subtotal } = buildItemRows(item, params, { overrideMarkupEnabled, overrideMarkup: markup });
+    const { subtotal } = buildItemRows(item, paramsDoOrcamento, { overrideMarkupEnabled, overrideMarkup: markup });
     return {
       diesel: acc.diesel + subtotal.diesel,
       manut: acc.manut + subtotal.manut,
@@ -487,7 +492,7 @@ export default function PainelComposicao() {
               <tbody>
                 {itemsCalc.map((item) => {
                   const { eqRows, subtotal, unit, prod, qty, volumeInSitu, volumeEmpolado, fatorEmpolamento } =
-                    buildItemRows(item, params, { overrideMarkupEnabled, overrideMarkup: markup });
+                    buildItemRows(item, paramsDoOrcamento, { overrideMarkupEnabled, overrideMarkup: markup });
 
                   return (
                     <React.Fragment key={item.id || item.desc}>
@@ -607,7 +612,7 @@ export default function PainelComposicao() {
                 suffix="×"
                 decimals={2}
                 disabled={!overrideMarkupEnabled}
-                hint={`default categoria: ${(params?.markup_por_categoria?._default || ASSUMPTIONS.markupPorCategoria._default).toFixed(2)}x`}
+                hint={`default categoria: ${(paramsDoOrcamento?.markup_por_categoria?._default || ASSUMPTIONS.markupPorCategoria._default).toFixed(2)}x`}
               />
 
               <ScenarioField

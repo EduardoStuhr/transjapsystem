@@ -8,7 +8,8 @@ import BudgetSummary from "../components/budget/BudgetSummary";
 import PessoasIndiretas from "../components/budget/PessoasIndiretas";
 import { calcNumOperadoresFrota, calcQuotationTotals } from "../services/costEngine";
 import { TRANSPORTE_AGREGADO_DEFAULT } from "../services/transportAgregadoEngine";
-import { uid, today } from "../utils/format";
+import { fmt, uid, today } from "../utils/format";
+import { buildPrazoParams, calcTotalHorasProjeto, migratePrazoMeta } from "../utils/quotationPrazo";
 import { ASSUMPTIONS } from "../config/assumptions.config";
 import S from "../styles/tokens";
 
@@ -44,6 +45,7 @@ const emptyItem = () => ({
   distanceFactor: 1,
   manualCost: 0,
   equipmentLines: [],
+  rateiaIndireto: true,
   soilCategory: "1ª",
   dmtDistance: 0,
   transporteAgregado: { ...TRANSPORTE_AGREGADO_DEFAULT },
@@ -56,24 +58,31 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   );
 
   const [step, setStep] = useState(1);
-  const [meta, setMeta] = useState(
-    editQuotation
-      ? {
-        client: editQuotation.client,
-        cnpj: editQuotation.cnpj,
-        project: editQuotation.project,
-        location: editQuotation.location,
-        prazo: editQuotation.prazo,
-        notes: editQuotation.notes || "",
-        volumeEmpoladoObra: editQuotation.volumeEmpoladoObra ?? 0,
-        totalHorasProjeto: editQuotation.totalHorasProjeto ?? 0,
-      }
+  const [meta, setMeta] = useState(() => {
+    const editMeta = editQuotation?.meta || editQuotation;
+    return editMeta
+      ? migratePrazoMeta({
+        client: editMeta.client,
+        cnpj: editMeta.cnpj,
+        project: editMeta.project,
+        location: editMeta.location,
+        prazo: editMeta.prazo,
+        notes: editMeta.notes || "",
+        volumeEmpoladoObra: editMeta.volumeEmpoladoObra ?? 0,
+        totalHorasProjeto: editMeta.totalHorasProjeto ?? 0,
+        prazoMeses: editMeta.prazoMeses ?? 0,
+        diasUteisMes: editMeta.diasUteisMes ?? 0,
+        horasDia: editMeta.horasDia ?? 0,
+      })
       : {
         client: "", cnpj: "", project: "", location: "", prazo: "", notes: "",
         volumeEmpoladoObra: 0,
         totalHorasProjeto: 0,
-      }
-  );
+        prazoMeses: 0,
+        diasUteisMes: 0,
+        horasDia: 0,
+      };
+  });
   const [items, setItems] = useState(editQuotation ? editQuotation.items : [emptyItem()]);
   // Pessoas indiretas — nível do orçamento (uma única lista para todos os itens).
   const [indirectPersonnel, setIndirectPersonnel] = useState(
@@ -83,9 +92,19 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   const [adminPct, setAdminPct] = useState(editQuotation?.adminPct ?? 3);
   const [mobilPct, setMobilPct] = useState(editQuotation?.mobilPct ?? 2);
   const [riskPct, setRiskPct] = useState(editQuotation?.riskPct ?? 1);
+  const totalHorasProjetoCalculado = useMemo(
+    () => calcTotalHorasProjeto(meta),
+    [meta]
+  );
+
+  const paramsDoOrcamento = useMemo(
+    () => buildPrazoParams(params, meta),
+    [params, meta]
+  );
+
   const numOperadoresFrotaOrcamento = useMemo(
-    () => calcNumOperadoresFrota(items, params),
-    [items, params],
+    () => calcNumOperadoresFrota(items, paramsDoOrcamento),
+    [items, paramsDoOrcamento],
   );
 
   // ── item field update + equipment line mutations ──
@@ -152,7 +171,15 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
     }));
   };
 
-  const addItem = () => setItems(prev => [...prev, emptyItem()]);
+  const itemComPrazoMeta = (overrides = {}) => ({
+    ...emptyItem(),
+    prazoMeses: meta.prazoMeses || 0,
+    diasUteisMes: meta.diasUteisMes || 22,
+    horasDia: meta.horasDia || 9,
+    ...overrides,
+  });
+
+  const addItem = () => setItems(prev => [...prev, itemComPrazoMeta()]);
   const delItem = (idx) => setItems(prev => prev.filter((_, i) => i !== idx));
 
   // ── Automação de Mobilização e Topografia ──
@@ -168,7 +195,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
 
     if (mobilSvc && !newItems.find(i => i.serviceId === mobilSvc.id)) {
       newItems.push({
-        ...emptyItem(),
+        ...itemComPrazoMeta(),
         serviceId: mobilSvc.id,
         desc: mobilSvc.name,
         unit: mobilSvc.unit,
@@ -183,7 +210,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
 
     if (topoSvc && !newItems.find(i => i.serviceId === topoSvc.id)) {
       newItems.push({
-        ...emptyItem(),
+        ...itemComPrazoMeta(),
         serviceId: topoSvc.id,
         desc: topoSvc.name,
         unit: topoSvc.unit,
@@ -201,27 +228,31 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   };
 
   const totals = useMemo(
-    () => calcQuotationTotals(items, eqMap, params, {
+    () => calcQuotationTotals(items, eqMap, paramsDoOrcamento, {
       bdi,
       adminPct,
       mobilPct,
       riskPct,
       indirectPersonnel,
-      totalHorasProjeto: meta.totalHorasProjeto,
       volumeEmpoladoObra: meta.volumeEmpoladoObra,
     }),
-    [items, bdi, adminPct, mobilPct, riskPct, eqMap, params, indirectPersonnel, meta.totalHorasProjeto, meta.volumeEmpoladoObra]
+    [items, bdi, adminPct, mobilPct, riskPct, eqMap, paramsDoOrcamento, indirectPersonnel, meta.volumeEmpoladoObra]
   );
 
   const save = (status = "rascunho") => {
+    const metaToSave = {
+      ...meta,
+      totalHorasProjeto: totalHorasProjetoCalculado,
+    };
+
     onSave({
       id: editQuotation?.id || uid(),
       number: editQuotation?.number || `TJ-${Date.now().toString().slice(-6)}`,
       createdAt: editQuotation?.createdAt || today(),
       status,
-      ...meta,
-      volumeEmpoladoObra: meta.volumeEmpoladoObra,
-      totalHorasProjeto: meta.totalHorasProjeto,
+      ...metaToSave,
+      volumeEmpoladoObra: metaToSave.volumeEmpoladoObra,
+      totalHorasProjeto: metaToSave.totalHorasProjeto,
       indirectPersonnel,
       items: totals.itemsCalc,
       bdi, adminPct, mobilPct, riskPct,
@@ -285,13 +316,35 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
             <Input label="Localização" value={meta.location} onChange={v => setMeta(m => ({ ...m, location: v }))} />
           </Row>
           <Row>
-            <Input label="Prazo de Execução" value={meta.prazo} onChange={v => setMeta(m => ({ ...m, prazo: v }))} placeholder="Ex: 45 dias úteis" />
             <Input
-              label="Total de horas do projeto (h)"
-              value={meta.totalHorasProjeto || ""}
-              onChange={v => setMeta(m => ({ ...m, totalHorasProjeto: toNumber(v) || 0 }))}
-              type="number" step="1" min="0"
-              placeholder="Ex: 1782 (250 dias × 9h)"
+              label="Prazo (meses)"
+              type="number" step="1" min="1"
+              value={meta.prazoMeses || ""}
+              onChange={v => setMeta(m => ({ ...m, prazoMeses: parseInt(v, 10) || 0 }))}
+              placeholder="Ex: 9"
+            />
+            <Input
+              label="Dias úteis/mês"
+              type="number" step="1" min="1" max="31"
+              value={meta.diasUteisMes || ""}
+              onChange={v => setMeta(m => ({ ...m, diasUteisMes: parseInt(v, 10) || 0 }))}
+              placeholder="Ex: 22"
+            />
+            <Input
+              label="Horas/dia"
+              type="number" step="0.5" min="1" max="24"
+              value={meta.horasDia || ""}
+              onChange={v => setMeta(m => ({ ...m, horasDia: parseFloat(v) || 0 }))}
+              placeholder="Ex: 9"
+            />
+          </Row>
+          <Row>
+            <Input
+              label="Total de horas do projeto (calculado)"
+              value={`${fmt(totalHorasProjetoCalculado, 0)} h`}
+              readOnly
+              style={{ background: "rgba(0,0,0,0.20)" }}
+              hint={`= ${meta.prazoMeses || 0} x ${meta.diasUteisMes || 0} x ${meta.horasDia || 0}`}
             />
             <Input
               label="Volume empolado total (m³)"
@@ -300,15 +353,31 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               type="number" step="0.01" min="0"
               placeholder="Volume manual da obra"
             />
+            {items.length > 0 && (meta.prazoMeses || meta.diasUteisMes || meta.horasDia) && (
+              <Button
+                onClick={() => {
+                  if (window.confirm(`Aplicar prazo (${meta.prazoMeses || 0}m x ${meta.diasUteisMes || 0}d x ${meta.horasDia || 0}h) a todos os ${items.length} itens?`)) {
+                    setItems(prev => prev.map(it => ({
+                      ...it,
+                      prazoMeses: meta.prazoMeses,
+                      diasUteisMes: meta.diasUteisMes,
+                      horasDia: meta.horasDia,
+                    })));
+                  }
+                }}
+              >
+                Aplicar a todos os itens
+              </Button>
+            )}
           </Row>
           <Input label="Observações" value={meta.notes} onChange={v => setMeta(m => ({ ...m, notes: v }))} />
 
           <PessoasIndiretas
             value={indirectPersonnel}
             onChange={setIndirectPersonnel}
-            params={params}
+            params={paramsDoOrcamento}
             items={items}
-            totalHorasProjeto={meta.totalHorasProjeto}
+            totalHorasProjeto={totalHorasProjetoCalculado}
           />
 
           <div style={{ marginTop: 8 }}>
@@ -329,10 +398,10 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               equipmentMap={eqMap}
               equipmentOptions={eqOptions}
               serviceOptions={svcOptions}
-              params={params}
+              params={paramsDoOrcamento}
               indirectPersonnel={indirectPersonnel}
               numOperadoresFrotaOrcamento={numOperadoresFrotaOrcamento}
-              totalHorasProjeto={meta.totalHorasProjeto}
+              totalHorasProjeto={totalHorasProjetoCalculado}
               volumeEmpoladoObra={meta.volumeEmpoladoObra}
               onUpdate={updateItem}
               onDelete={() => delItem(idx)}

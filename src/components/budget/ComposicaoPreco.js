@@ -487,7 +487,11 @@ function KV({ label, value, hint, accent = false }) {
 // ──────────────────────────────────────────────────────────────────
 function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
   if (!eq) return null;
-  const baseLabel = (tipo) => tipo === "in_situ" ? "in situ" : "empolado";
+  const baseLabel = (tipo) => {
+    if (tipo === "area") return "ÁREA";
+    if (tipo === "in_situ") return "in situ";
+    return "empolado";
+  };
   const isPatrolDieselExcecao = eq.volume_ref_diesel_tipo === "in_situ";
   const usaFallbackManut = !(eq.custoManutencaoDireto > 0);
   const prodZero = !(eq.baseProductivity > 0);
