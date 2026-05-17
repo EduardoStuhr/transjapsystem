@@ -8,6 +8,7 @@ export default function Input({
   type = "text",
   step,
   min,
+  hint,
   placeholder,
   readOnly = false,
   disabled = false,
@@ -29,6 +30,7 @@ export default function Input({
         className="field__input"
         {...inputProps}
       />
+      {hint && <div className="field__hint">{hint}</div>}
     </div>
   );
 }

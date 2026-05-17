@@ -191,6 +191,25 @@ export const calcTransporteAgregado = (item = {}, params = {}) => {
 
   if (n.volumeBaseTransporte <= 0) validacoes.push({ severidade: "erro", mensagem: "Volume base deve ser > 0" });
   if (n.valorFreteBase <= 0) validacoes.push({ severidade: "erro", mensagem: "Valor do frete base deve ser > 0" });
+  if (n.markupTransporte > 0 && n.markupTransporte < 1) {
+    const perdaPct = ((1 - n.markupTransporte) * 100).toFixed(0);
+    validacoes.push({
+      severidade: "alerta",
+      mensagem: `Markup transporte = ${n.markupTransporte.toFixed(2).replace(".", ",")} (${((n.markupTransporte - 1) * 100).toFixed(0)}%). Valor < 1 significa VENDA ABAIXO DO CUSTO - prejuizo de R$ ${perdaPct}%. Confirme se e intencional (ex.: rateio entre obras).`,
+    });
+  }
+  if (n.markupTransporte === 1) {
+    validacoes.push({
+      severidade: "alerta",
+      mensagem: "Markup transporte = 1,00 (0%). VENDA = CUSTO - sem margem para o empreiteiro. Confirme se e intencional (ex.: repasse direto ao cliente).",
+    });
+  }
+  if (n.markupTransporte > 5) {
+    validacoes.push({
+      severidade: "alerta",
+      mensagem: `Markup transporte = ${n.markupTransporte.toFixed(2).replace(".", ",")} (${((n.markupTransporte - 1) * 100).toFixed(0)}%) parece alto demais. Markup tipico de frete em terraplenagem: 1,5-2,5 (50-150%). Confira.`,
+    });
+  }
 
   return {
     ...n,

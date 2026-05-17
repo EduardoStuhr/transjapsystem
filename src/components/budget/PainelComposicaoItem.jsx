@@ -59,11 +59,15 @@ export default function PainelComposicaoItem({ item, result, onClose }) {
   );
   const validacoes = aud.validacoes || [];
 
-  const [selecionadoId, setSelecionadoId] = useState("todos");
+  const [selecionadosIds, setSelecionadosIds] = useState(["todos"]);
   const eqsVisiveis = useMemo(() => {
-    if (selecionadoId === "todos") return eqs;
-    return eqs.filter((e) => (e.equipmentId || e.id) === selecionadoId);
-  }, [eqs, selecionadoId]);
+    const ids = Array.isArray(selecionadosIds)
+      ? selecionadosIds.filter((id) => id !== "todos")
+      : [];
+    if (selecionadosIds.includes("todos") || ids.length === 0) return eqs;
+    const selecionados = new Set(ids);
+    return eqs.filter((e) => selecionados.has(e.equipmentId || e.id));
+  }, [eqs, selecionadosIds]);
 
   if (!item || !result) return null;
 
@@ -86,8 +90,8 @@ export default function PainelComposicaoItem({ item, result, onClose }) {
 
       <PainelSeletor
         equipamentos={eqs}
-        selecionado={selecionadoId}
-        onChange={setSelecionadoId}
+        selecionados={selecionadosIds}
+        onChange={setSelecionadosIds}
         disabled={!isNovo}
       />
 
@@ -287,7 +291,96 @@ function VarCell({ label, valor, unidade, decimais = 2, tip, kind = "formula" })
 // ──────────────────────────────────────────────────────────────────
 // 2 — Seletor de equipamento
 // ──────────────────────────────────────────────────────────────────
-function PainelSeletor({ equipamentos, selecionado, onChange, disabled }) {
+function PainelSeletor({ equipamentos, selecionados = ["todos"], onChange, disabled }) {
+  const idsSelecionados = Array.isArray(selecionados) ? selecionados : ["todos"];
+  const todosAtivo = idsSelecionados.includes("todos") || idsSelecionados.length === 0;
+  const idsIndividuais = idsSelecionados.filter((id) => id !== "todos");
+  const selecionadosSet = new Set(idsIndividuais);
+  const bloqueado = disabled || equipamentos.length === 0;
+
+  const toggleTodos = () => {
+    if (bloqueado) return;
+    onChange(["todos"]);
+  };
+
+  const toggleEquipamento = (id) => {
+    if (bloqueado) return;
+    const base = todosAtivo ? [] : idsIndividuais;
+    const next = selecionadosSet.has(id)
+      ? base.filter((x) => x !== id)
+      : [...base, id];
+    onChange(next.length > 0 ? next : ["todos"]);
+  };
+
+  const hintSelecao = todosAtivo
+    ? `${equipamentos.length} equipamento(s) alocado(s) - todos selecionados`
+    : `${idsIndividuais.length} de ${equipamentos.length} equipamento(s) selecionado(s)`;
+
+  return (
+    <Section n={2} title="Ver composicao de" hint={hintSelecao}>
+      <div
+        style={{
+          background: SS.bgKeyInput,
+          color: SS.formulaText,
+          border: `1px solid ${SS.border}`,
+          padding: "8px 12px",
+          fontSize: 13,
+          fontWeight: 600,
+          fontFamily: SS.fontUI,
+          maxWidth: 760,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          gap: 8,
+          opacity: bloqueado ? 0.65 : 1,
+        }}
+      >
+        <label style={checkOptionStyle(bloqueado, todosAtivo)}>
+          <input
+            type="checkbox"
+            checked={todosAtivo}
+            disabled={bloqueado}
+            onChange={toggleTodos}
+          />
+          <span>Todos os equipamentos</span>
+        </label>
+        {equipamentos.map((eq) => {
+          const id = eq.equipmentId || eq.id;
+          const ativo = todosAtivo || selecionadosSet.has(id);
+          return (
+            <label key={id} style={checkOptionStyle(bloqueado, ativo)}>
+              <input
+                type="checkbox"
+                checked={ativo}
+                disabled={bloqueado}
+                onChange={() => toggleEquipamento(id)}
+              />
+              <span>
+                {eq.equipamento || eq.nome}
+                {eq.qty != null && eq.qty !== 1 ? ` (${fmt(eq.qty, 0)}x)` : ""}
+                {eq.categoria ? ` - ${eq.categoria}` : ""}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+const checkOptionStyle = (disabled, active) => ({
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  minHeight: 28,
+  padding: "5px 8px",
+  border: `1px solid ${active ? SS.accentBlue : "transparent"}`,
+  background: active ? "rgba(37, 99, 235, 0.12)" : "transparent",
+  color: active ? SS.formulaText : SS.mutedText,
+  cursor: disabled ? "not-allowed" : "pointer",
+  userSelect: "none",
+});
+
+function PainelSeletorSingle({ equipamentos, selecionado, onChange, disabled }) {
   return (
     <Section n={2} title="Ver composição de" hint={`${equipamentos.length} equipamento(s) alocado(s)`}>
       <select
@@ -612,8 +705,11 @@ function CardTransporteAgregado({ eq, unit }) {
           <KpiCell label="Custo total" valor={fmtBRL(t.custoTotalFrete)} kind="formula" />
           <KpiCell
             label={`Markup × ${fmt(t.markupTransporte, 2)}`}
-            valor={`+${(((t.markupTransporte || 1) - 1) * 100).toFixed(0)}%`}
-            kind="key"
+            valor={t.markupTransporte === 1
+              ? "neutro"
+              : `${(((t.markupTransporte || 1) - 1) * 100).toFixed(0)}%${t.markupTransporte < 1 ? " (PREJUIZO)" : ""}`
+            }
+            kind={t.markupTransporte === 1 ? "muted" : t.markupTransporte < 1 ? "danger" : "key"}
           />
           <KpiCell
             label="Preço total venda"
@@ -680,6 +776,7 @@ function DecomposicaoPlanilha({ t }) {
   const empPct = ((d.fatorEmpAcresc || 0) * 100).toFixed(0);
   const perdaPct = ((d.perdaCarregamentoPct || 0) * 100).toFixed(0);
   const markupPct = ((d.markup || 1) * 100).toFixed(0);
+  const markupNeutro = d.markup === 1;
   const volStr = `${fmt(d.volumeEmpoladoTotal, 2)} m³ emp.`;
 
   return (
@@ -707,6 +804,23 @@ function DecomposicaoPlanilha({ t }) {
         />
       </div>
 
+      {markupNeutro && (
+        <div style={{
+          padding: "8px 12px",
+          background: SS.bgWarning || "rgba(255, 200, 0, 0.08)",
+          border: `1px dashed ${SS.warningBorder || "rgba(255, 200, 0, 0.4)"}`,
+          fontSize: 11,
+          fontFamily: SS.fontMono,
+          color: SS.warningText || "#cc8800",
+          marginBottom: 10,
+        }}>
+          <Strong>Markup transporte = x 1,00 (0%)</Strong>: venda = custo.
+          Sem margem para o empreiteiro. Para aplicar markup, digite valor &gt; 1 no campo
+          "Markup transporte (x)" do item (ex.: 1,99 para 99% de margem).
+        </div>
+      )}
+
+      {!markupNeutro && (
       <div style={{ marginBottom: 10 }}>
         <div style={{
           fontSize: 11, fontWeight: 700, color: SS.refText,
@@ -727,6 +841,7 @@ function DecomposicaoPlanilha({ t }) {
           ]}
         />
       </div>
+      )}
 
       <div style={{
         fontSize: 11, color: SS.mutedText, fontFamily: SS.fontMono,
@@ -754,8 +869,14 @@ function KpiCell({ label, valor, hint, kind = "formula", emphasize = false }) {
   const color =
     kind === "key" ? SS.formulaText :
     kind === "ref" ? SS.refText     :
+    kind === "muted" ? SS.mutedText :
+    kind === "danger" ? (SS.errText || "#b91c1c") :
                      SS.formulaText;
-  const bg = kind === "key" ? SS.bgKeyInput : SS.bg;
+  const bg =
+    kind === "key" ? SS.bgKeyInput :
+    kind === "danger" ? (SS.errBg || "rgba(220, 38, 38, 0.10)") :
+    kind === "muted" ? (SS.bgAlt || SS.bg) :
+    SS.bg;
   return (
     <div
       style={{

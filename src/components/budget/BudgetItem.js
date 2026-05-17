@@ -708,10 +708,13 @@ function TransporteAgregadoBlock({ item, params, onSet }) {
             />
             <Input
               label="Markup transporte (×)"
+              hint="Ex.: 1,99 = 99% de margem. Valor 1,00 = sem markup (nao recomendado)."
               value={t.markupTransporte}
               onChange={(v) => onSet("markupTransporte", v)}
-              type="text"
-              placeholder="ex: 1.30"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="1,99"
             />
           </Row>
 

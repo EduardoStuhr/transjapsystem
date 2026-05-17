@@ -137,4 +137,83 @@ describe("Transporte Agregado — espelhamento da planilha RONMA", () => {
     const r = calcTransporteAgregado(item);
     expect(r.totalVendaTransporte).toBeCloseTo(r.decomposicaoPlanilha.totalVendaGeral, 2);
   });
+
+  test("markup = 1 dispara warning e venda = custo", () => {
+    const item = {
+      fatorEmpolamento: 1.36,
+      transporteAgregado: {
+        enabled: true,
+        modoFrete: "por_m3_planilha",
+        valorFretePorM3OuViagem: 1.65,
+        fatorEmpolamentoTransporte: 0.40,
+        perdaCarregamentoPct: 0.10,
+        volumeBaseTransporte: 537228.53,
+        volumeBaseTipo: "in_situ",
+        markupTransporte: 1,
+        volumeInSituPorViagem: 15,
+      },
+    };
+    const r = calcTransporteAgregado(item);
+    expect(r.totalVendaTransporte).toBeCloseTo(r.custoTotalFrete, 1);
+    expect(r.validacoes.some(v => v.mensagem.includes("Markup transporte = 1,00"))).toBe(true);
+  });
+
+  test("markup = 1.99 (planilha) dispara calculo correto sem warning", () => {
+    const item = {
+      fatorEmpolamento: 1.36,
+      transporteAgregado: {
+        enabled: true,
+        modoFrete: "por_m3_planilha",
+        valorFretePorM3OuViagem: 1.65,
+        fatorEmpolamentoTransporte: 0.40,
+        perdaCarregamentoPct: 0.10,
+        volumeBaseTransporte: 537228.53,
+        volumeBaseTipo: "in_situ",
+        markupTransporte: 1.99,
+        volumeInSituPorViagem: 15,
+      },
+    };
+    const r = calcTransporteAgregado(item);
+    expect(r.custoTotalFrete).toBeCloseTo(1808311.23, 0);
+    expect(r.totalVendaTransporte).toBeCloseTo(3598539.35, 0);
+    expect(r.validacoes.filter(v => v.mensagem.includes("Markup transporte")).length).toBe(0);
+  });
+
+  test("markup < 1 dispara warning de prejuizo", () => {
+    const item = {
+      fatorEmpolamento: 1.36,
+      transporteAgregado: {
+        enabled: true,
+        modoFrete: "por_m3_planilha",
+        valorFretePorM3OuViagem: 1.65,
+        fatorEmpolamentoTransporte: 0.40,
+        perdaCarregamentoPct: 0.10,
+        volumeBaseTransporte: 537228.53,
+        volumeBaseTipo: "in_situ",
+        markupTransporte: 0.5,
+        volumeInSituPorViagem: 15,
+      },
+    };
+    const r = calcTransporteAgregado(item);
+    expect(r.validacoes.some(v => v.mensagem.includes("VENDA ABAIXO DO CUSTO"))).toBe(true);
+  });
+
+  test("markup > 5 dispara warning de plausibilidade", () => {
+    const item = {
+      fatorEmpolamento: 1.36,
+      transporteAgregado: {
+        enabled: true,
+        modoFrete: "por_m3_planilha",
+        valorFretePorM3OuViagem: 1.65,
+        fatorEmpolamentoTransporte: 0.40,
+        perdaCarregamentoPct: 0.10,
+        volumeBaseTransporte: 537228.53,
+        volumeBaseTipo: "in_situ",
+        markupTransporte: 5.5,
+        volumeInSituPorViagem: 15,
+      },
+    };
+    const r = calcTransporteAgregado(item);
+    expect(r.validacoes.some(v => v.mensagem.includes("parece alto demais"))).toBe(true);
+  });
 });

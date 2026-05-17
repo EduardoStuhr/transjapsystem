@@ -215,6 +215,12 @@
   color: var(--color-muted);
 }
 
+.field__hint {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 /* ── Button ── */
 .btn {
   cursor: pointer;
