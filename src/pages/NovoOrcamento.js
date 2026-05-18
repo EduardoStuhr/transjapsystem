@@ -67,6 +67,7 @@ const emptyItem = () => ({
   equipmentLines: [],
   rateiaIndireto: true,
   modoPreco: "tecnico",
+  modoCalculoEquipamentos: "padrao",
   modeloHorasMaquina: "proprio",
   precoUnitarioMercado: 0,
   precoUnitCravado: 0,
@@ -225,6 +226,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
           const usaGlobalPadrao = usaHorasMaquinaGlobalPorPadrao(svc);
           up.modeloHorasMaquina = usaGlobalPadrao ? "global_obra" : (up.modeloHorasMaquina || "proprio");
           up.modeloHorasMaquinaManual = false;
+          up.modoCalculoEquipamentos = up.modoCalculoEquipamentos || "padrao";
           const precoCravadoSugerido = toNumber(svc.precoCravadoSugerido, 0);
           const modoPrecoDefault = svc.modoPrecoDefault || (isLimpezaVegetal && toNumber(svc.referenceUnitPrice) > 0 ? "mercado" : "tecnico");
           up.precoUnitarioMercado = isLimpezaVegetal ? (toNumber(svc.referenceUnitPrice) || 0) : up.precoUnitarioMercado;
@@ -367,12 +369,16 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
   );
   const horasMaquinaGlobalInfo = totals?.horasMaquinaGlobalInfo || {};
   const horasMaquinaGlobalObra = totals?.horasMaquinaGlobalObra || 0;
+  const horasFrenteEscavacaoInfo = totals?.horasFrenteEscavacaoInfo || horasMaquinaGlobalInfo;
+  const horasFrenteEscavacao = totals?.horasFrenteEscavacao || horasMaquinaGlobalObra;
   const paramsDoOrcamentoComGlobal = useMemo(
     () => ({
       ...paramsDoOrcamento,
       horas_maquina_global_obra: horasMaquinaGlobalObra,
+      horas_frente_escavacao: horasFrenteEscavacao,
+      horas_frente_escavacao_info: horasFrenteEscavacaoInfo,
     }),
-    [paramsDoOrcamento, horasMaquinaGlobalObra],
+    [paramsDoOrcamento, horasMaquinaGlobalObra, horasFrenteEscavacao, horasFrenteEscavacaoInfo],
   );
 
   const save = (status = "rascunho") => {
@@ -474,7 +480,7 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               placeholder="Ex: 9"
             />
           </Row>
-          {horasMaquinaGlobalObra > 0 && (
+          {horasFrenteEscavacao > 0 && (
             <div style={{
               padding: "10px 14px",
               background: "rgba(40, 80, 120, 0.10)",
@@ -483,13 +489,13 @@ export default function NovoOrcamento({ services, equipment, params, onSave, edi
               color: S.text,
             }}>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                Horas-mÃ¡quina global da obra: {fmt(horasMaquinaGlobalObra, 2)} h
+                Horas frente escavação (Dados do Contrato!J24): {fmt(horasFrenteEscavacao, 2)} h
               </div>
               <div style={{ color: S.muted }}>
-                Calculado do item de EscavaÃ§Ã£o: {fmt(horasMaquinaGlobalInfo.volumeEscavacao || 0, 0)} mÂ³ in situ / {fmt(horasMaquinaGlobalInfo.producaoEscavadeiras || 0, 1)} mÂ³/h = {fmt(horasMaquinaGlobalObra, 2)} h.
+                Calculado do item {horasFrenteEscavacaoInfo.itemOrigemDesc || "Escavação e Carga"}: {fmt(horasFrenteEscavacaoInfo.volumeEscavacao || 0, 0)} m³ in situ / {fmt(horasFrenteEscavacaoInfo.producaoEscavadeiras || 0, 1)} m³/h = {fmt(horasFrenteEscavacao, 2)} h.
               </div>
               <div style={{ color: S.muted, marginTop: 4, fontSize: 11 }}>
-                Itens marcados com "Modelo de horas-mÃ¡quina = Global da obra" usam este valor no diesel.
+                Equipamentos com origem do diesel "Frente de escavação" usam este valor mesmo quando estão alocados em outro item, como Aterro Compactação.
               </div>
             </div>
           )}

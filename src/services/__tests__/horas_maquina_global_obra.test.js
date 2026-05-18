@@ -10,12 +10,14 @@ const params = {
 };
 
 const escavadeira = { name: "Escavadeira 320DL", category: "Escavadeira", baseProductivity: 153.6, consumption: 93.5, custo_h_manutencao: 0 };
+const escavadeira336 = { name: "Escavadeira 336DL", category: "Escavadeira", baseProductivity: 240, consumption: 93.5, custo_h_manutencao: 0 };
 const patrol = { name: "Motoniveladora", category: "Motoniveladora", baseProductivity: 2000, consumption: 93.5, custo_h_manutencao: 0 };
 const grade = { name: "Grade Agricola", category: "Grade", baseProductivity: 1500, consumption: 82.5, custo_h_manutencao: 0 };
 const rolo = { name: "Rolo Compactador", category: "Compactador", baseProductivity: 250, consumption: 77, custo_h_manutencao: 0 };
 
 const equipmentMap = {
   esc320dl: escavadeira,
+  esc336dl: escavadeira336,
   patrol,
   grade,
   rolo,
@@ -48,6 +50,36 @@ test("horas-maquina global da obra reproduz J24 da planilha RONMA", () => {
   expect(horasGlobal).toBeCloseTo(3497.58, 1);
 });
 
+test("horasFrenteEscavacao usa a frente principal e alimenta auxiliares em outro item", () => {
+  const itemEscavacaoCarga = {
+    ...itemEscavacao,
+    desc: "Escavação e Carga Com Escavadeira",
+    equipmentLines: [
+      { equipmentId: "esc320dl", quantity: 1 },
+      { equipmentId: "esc336dl", quantity: 1 },
+    ],
+  };
+  const totals = calcQuotationTotals([
+    itemEscavacaoCarga,
+    {
+      ...itemAterro,
+      desc: "Aterro Compactação",
+      equipmentLines: [{ equipmentId: "patrol", quantity: 1 }],
+    },
+  ], equipmentMap, params, {});
+  const aterro = totals.itemsCalc.find((item) => item.id === "ate");
+  const patrolCalc = aterro.detalhes.auditoria.equipamentos[0];
+
+  expect(totals.horasFrenteEscavacao).toBeCloseTo(1364.91, 1);
+  expect(totals.horasFrenteEscavacaoInfo.producaoEscavadeiras).toBeCloseTo(393.6, 6);
+  expect(patrolCalc.horas_diesel).toBeCloseTo(1364.91, 1);
+  expect(patrolCalc.horas_diesel).not.toBeCloseTo(537228.53 / 2000, 1);
+  expect(patrolCalc.base_horas_diesel).toBe("frente_escavacao");
+  expect(patrolCalc.item_origem_horas_diesel).toBe("Escavação e Carga Com Escavadeira");
+  expect(patrolCalc.item_alocado_horas_diesel).toBe("Aterro Compactação");
+  expect(patrolCalc.formula_diesel_descricao).toMatch(/horasFrenteEscavacao/);
+});
+
 test("item Aterro com modeloHorasMaquina=global_obra usa hora da escavadeira no diesel", () => {
   const totals = calcQuotationTotals([
     itemEscavacao,
@@ -57,7 +89,7 @@ test("item Aterro com modeloHorasMaquina=global_obra usa hora da escavadeira no 
 
   aterro.detalhes.auditoria.equipamentos.forEach((eq) => {
     expect(eq.horas_maquina_aplicada).toBeCloseTo(3497.58, 1);
-    expect(eq.modelo_horas_maquina).toBe("global_obra");
+    expect(eq.modelo_horas_maquina).toBe("frente_escavacao");
   });
 
   const roloCalc = aterro.detalhes.auditoria.equipamentos.find((eq) => eq.categoria === "Compactador");
@@ -74,7 +106,7 @@ test("item Aterro sem escolha manual usa modelo global por padrao", () => {
   const roloCalc = aterro.detalhes.auditoria.equipamentos.find((eq) => eq.categoria === "Compactador");
 
   expect(roloCalc.horas_maquina_aplicada).toBeCloseTo(3497.58, 1);
-  expect(roloCalc.modelo_horas_maquina).toBe("global_obra");
+  expect(roloCalc.modelo_horas_maquina).toBe("frente_escavacao");
 });
 
 test("item tecnico fora de escavacao tambem herda horas globais por padrao", () => {
@@ -90,16 +122,20 @@ test("item tecnico fora de escavacao tambem herda horas globais por padrao", () 
 
   regularizacao.detalhes.auditoria.equipamentos.forEach((eq) => {
     expect(eq.horas_maquina_aplicada).toBeCloseTo(3497.58, 1);
-    expect(eq.horas_maquina_origem).toContain("Global da obra");
-    expect(eq.modelo_horas_maquina).toBe("global_obra");
+    expect(eq.horas_maquina_origem).toContain("Frente de escavação");
+    expect(eq.modelo_horas_maquina).toBe("frente_escavacao");
   });
 });
 
-test("item com escolha manual modeloHorasMaquina=proprio usa calculo do executor", () => {
+test("equipamento com origemHorasDiesel=proprio_item usa calculo do item", () => {
+  const equipmentMapProprio = {
+    ...equipmentMap,
+    rolo: { ...rolo, origemHorasDiesel: "proprio_item" },
+  };
   const totals = calcQuotationTotals([
     itemEscavacao,
     { ...itemAterro, modeloHorasMaquina: "proprio", modeloHorasMaquinaManual: true },
-  ], equipmentMap, params, {});
+  ], equipmentMapProprio, params, {});
   const aterro = totals.itemsCalc.find((item) => item.id === "ate");
   const roloCalc = aterro.detalhes.auditoria.equipamentos.find((eq) => eq.categoria === "Compactador");
 

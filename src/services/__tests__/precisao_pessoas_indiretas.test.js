@@ -58,3 +58,59 @@ test("arredonda somente o total de alojamento quando valor legado vier com 4 cas
   expect(linha("alojamento").total).toBe(82170);
   expect(linha("topografia").total).toBeCloseTo(158400.0198, 4);
 });
+
+test("alimentacao em modo agrupado segue formula da planilha sem multiplicar quantidade novamente", () => {
+  const r = calcIndiretoRateadoPorM3(
+    {
+      ...INITIAL_PARAMS,
+      alimentacao_modo_calculo: "agrupado",
+      pessoas_indiretas: {
+        ...INITIAL_PARAMS.pessoas_indiretas,
+        alimentacao: null,
+      },
+    },
+    [{ tipo: "alimentacao", quantidade: 13 }],
+    0,
+    volumeInSitu,
+    horasProjeto,
+    { withBreakdown: true },
+  );
+  const alimentacao = r.linhas.find((l) => l.tipo === "alimentacao");
+
+  expect(alimentacao.custoHora).toBeCloseTo(86.6666667, 6);
+  expect(alimentacao.quantidadeUsadaNoTotal).toBe(1);
+  expect(alimentacao.total).toBeCloseTo(154440.00, 2);
+  expect(alimentacao.custoHora).not.toBeCloseTo(133.3333333, 6);
+  expect(alimentacao.alimentacao).toEqual(expect.objectContaining({
+    modoCalculo: "agrupado",
+    quantidadePessoas: 13,
+    valorDiario: 40,
+    diasMes: 30,
+    horasRef: 180,
+    horasTotaisProjeto: 1782,
+    valorHoraCalculado: expect.any(Number),
+  }));
+});
+
+test("alimentacao em modo por pessoa multiplica o valor unitario pela quantidade", () => {
+  const r = calcIndiretoRateadoPorM3(
+    {
+      ...INITIAL_PARAMS,
+      alimentacao_modo_calculo: "por_pessoa",
+      pessoas_indiretas: {
+        ...INITIAL_PARAMS.pessoas_indiretas,
+        alimentacao: null,
+      },
+    },
+    [{ tipo: "alimentacao", quantidade: 13 }],
+    0,
+    volumeInSitu,
+    horasProjeto,
+    { withBreakdown: true },
+  );
+  const alimentacao = r.linhas.find((l) => l.tipo === "alimentacao");
+
+  expect(alimentacao.custoHora).toBeCloseTo(6.6666667, 6);
+  expect(alimentacao.quantidadeUsadaNoTotal).toBe(13);
+  expect(alimentacao.total).toBeCloseTo(154440.00, 2);
+});

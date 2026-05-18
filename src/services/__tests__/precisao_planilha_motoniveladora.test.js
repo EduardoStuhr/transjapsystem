@@ -86,6 +86,19 @@ test("Motoniveladora no Aterro bate com planilha em precisao de 4 casas", () => 
   expect(patrol.custo_R$_m3_preciso).toBeCloseTo(g.custo_unit, 4);
   expect(patrol.preco_R$_m3_preciso).toBeCloseTo(g.preco_unit, 4);
   expect(patrol.total_maquina_obra_preciso_R$).toBeCloseTo(g.total_aterro, 0);
+  expect(patrol.volume_referencia_total_final).toBeCloseTo(itemAterro.volumeAterroInSitu, 6);
+  expect(patrol.volume_referencia_total_final_tipo).toBe("aterro_in_situ");
+  expect(patrol.volume_referencia_total_final_origem).toBe("item.volumeAterroInSitu");
+});
+
+test("Consolidação de categoria usa volume de aterro in situ para Motoniveladora", () => {
+  const r = calculaAterro();
+  const grupo = r.detalhes.auditoria.consolidacaoCategorias.find((g) => g.categoria === "Motoniveladora");
+
+  expect(grupo).toBeDefined();
+  expect(grupo.volumeReferenciaTotalFinal).toBeCloseTo(itemAterro.volumeAterroInSitu, 6);
+  expect(grupo.volumeReferenciaTotalFinalTipo).toBe("aterro_in_situ");
+  expect(grupo.totalFinalGrupo).toBeCloseTo(grupo.precoUnitarioFinal * itemAterro.volumeAterroInSitu, 6);
 });
 
 test("delta residual em precisao dupla e menor que R$ 1,00 para equipamentos com golden", () => {

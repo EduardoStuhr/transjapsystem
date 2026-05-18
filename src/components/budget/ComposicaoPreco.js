@@ -459,6 +459,22 @@ function PainelVariaveisOrcamento({ ctx, unit }) {
           <KV label="Horas / dia" value={`${fmt(ctx.horasDia, 0)} h`} />
           <KV label="Horas gerais do contrato" value={`${fmt(ctx.horasGeraisContrato ?? ctx.horasProjeto, 0)} h`}
               hint={`= ${fmt(ctx.diasUteisMes, 0)} × ${fmt(ctx.horasDia, 0)} × ${fmt(ctx.prazoMeses, 0)}`} />
+          {ctx.reproduzPlanilhaJoaoChecon && (
+            <KV
+              label="Modo equipamentos"
+              value="João Checon"
+              hint="diesel por Dados do Contrato!J24; manutenção e mão de obra por horas totais do projeto"
+              accent
+            />
+          )}
+          {ctx.horasFrenteEscavacao > 0 && !ctx.reproduzPlanilhaJoaoChecon && (
+            <KV
+              label="Horas frente escavação"
+              value={`${fmt(ctx.horasFrenteEscavacao, 2)} h`}
+              hint="variável global do orçamento equivalente a Dados do Contrato!J24"
+              accent
+            />
+          )}
           {isArea && (
             <>
               <KV label="Dias úteis do item" value={`${fmt(ctx.diasUteisItem || 0, 2)} dias`}
@@ -468,7 +484,24 @@ function PainelVariaveisOrcamento({ ctx, unit }) {
             </>
           )}
           <KV label="Produção conjunto" value={`${fmt(ctx.producaoConjuntoHora, 2)} ${unit || "m³"}/h`}
-              hint={isArea ? "produtividade informada em m²/h" : "Σ baseProductivity × qty (sem fatores)"} />
+              hint={ctx.reproduzPlanilhaJoaoChecon
+                ? "produção total das escavadeiras selecionadas"
+                : (isArea ? "produtividade informada em m²/h" : "Σ baseProductivity × qty (sem fatores)")} />
+          {ctx.reproduzPlanilhaJoaoChecon && (
+            <>
+              <KV
+                label="Produção escavadeiras"
+                value={`${fmt(ctx.producaoTotalEscavadeirasSelecionadas || 0, 2)} ${unit || "m³"}/h`}
+                hint="Σ produções m³/h das escavadeiras selecionadas"
+              />
+              <KV
+                label="Dados Contrato!J24"
+                value={`${fmt(ctx.dadosContratoJ24 || ctx.horasProducaoConjunta || ctx.horasMaquinaNecessarias || 0, 2)} h`}
+                hint={`= ${fmt(ctx.horasFrenteEscavacaoInfo?.volumeEscavacao || ctx.volumeInSitu, 2)} ÷ ${fmt(ctx.horasFrenteEscavacaoInfo?.producaoEscavadeiras || ctx.producaoTotalEscavadeirasSelecionadas || ctx.producaoConjuntoHora || 0, 2)}`}
+                accent
+              />
+            </>
+          )}
           {isArea && (
             <>
               <KV label="Produtividade original" value={`${fmt(ctx.produtividadeOriginal || 0, 2)} ${ctx.produtividadeUnidadeOriginal === "dia" ? `${unit || "m²"}/dia` : `${unit || "m²"}/h`}`} />
@@ -521,6 +554,25 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
   const isPatrolDieselExcecao = eq.volume_ref_diesel_tipo === "in_situ";
   const usaFallbackManut = !(eq.custoManutencaoDireto > 0);
   const prodZero = !(eq.baseProductivity > 0);
+  const volumeConsolidacao = eq.volume_referencia_consolidacao ?? ctx?.volumeInSitu ?? 0;
+  const volumeConsolidacaoLabel = baseLabel(eq.volume_referencia_consolidacao_tipo || "empolado");
+  const usaFrenteEscavacaoDiesel = eq.base_horas_diesel === "frente_escavacao";
+  const supBase = (base) => {
+    if (base === "maquina" || base === "proprio_item" || base === "global_obra") return { simbolo: "ⓜ", label: "horas-máquina" };
+    if (base === "frente_escavacao") return { simbolo: "Ⓕ", label: "frente de escavação" };
+    if (base === "manual") return { simbolo: "ⓘ", label: "horas manuais" };
+    return { simbolo: "ⓟ", label: "horas-projeto" };
+  };
+  const baseManut = supBase(eq.horas_manutencao_base);
+  const baseMO = supBase(eq.horas_mo_base);
+  const custoSemMarkup = eq.custo_unitario_individual_sem_markup_preciso
+    ?? eq.custo_unitario_sem_indireto_preciso
+    ?? eq.custo_unitario_individual_sem_markup
+    ?? eq.custo_unitario_sem_indireto
+    ?? 0;
+  const totalSemMarkup = eq.total_individual_sem_markup_preciso
+    ?? eq.total_individual_sem_markup
+    ?? (custoSemMarkup * volumeConsolidacao);
 
   return (
     <div style={{ ...styles.block, gap: 10 }}>
@@ -535,6 +587,11 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
           {isPatrolDieselExcecao && (
             <span style={styles.badge("#fbbf24", "rgba(245,158,11,0.18)")} title="Diesel rateado por m³ in situ por configuração de categoria">
               diesel ÷ in situ
+            </span>
+          )}
+          {usaFrenteEscavacaoDiesel && (
+            <span style={styles.badge("#93c5fd", "rgba(59,130,246,0.18)")} title="Diesel usa horasFrenteEscavacao / Dados do Contrato!J24">
+              DIESEL + FRENTE ESC
             </span>
           )}
         </div>
@@ -564,7 +621,7 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
                 <td style={styles.td}>⛽ Diesel</td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(eq.diesel_hora)}</td>
                 <td style={{ ...styles.td, textAlign: "right" }} title="horas-máquina">
-                  {fmt(eq.horas_diesel, 2)} <span style={{ color: S.muted }}>ⓜ</span>
+                  {fmt(eq.horas_diesel, 2)} <span style={{ color: S.muted }}>{usaFrenteEscavacaoDiesel ? "Ⓕ" : "ⓜ"}</span>
                 </td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{fmt(eq.qty, 2)}</td>
                 <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_diesel)}</td>
@@ -579,7 +636,7 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
                 </td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(eq.manutencao_hora)}</td>
                 <td style={{ ...styles.td, textAlign: "right" }} title="horas-projeto">
-                  {fmt(eq.horas_manutencao, 0)} <span style={{ color: S.muted }}>ⓟ</span>
+                  {fmt(eq.horas_manutencao, 0)} <span title={baseManut.label} style={{ color: S.muted }}>{baseManut.simbolo}</span>
                 </td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{fmt(eq.qty, 2)}</td>
                 <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_manutencao)}</td>
@@ -588,27 +645,36 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
                 <td style={styles.td}>👷 Mão de obra</td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(eq.operador_hora)}</td>
                 <td style={{ ...styles.td, textAlign: "right" }} title="horas-projeto">
-                  {fmt(eq.horas_mo, 0)} <span style={{ color: S.muted }}>ⓟ</span>
+                  {fmt(eq.horas_mo, 0)} <span title={baseMO.label} style={{ color: S.muted }}>{baseMO.simbolo}</span>
                 </td>
                 <td style={{ ...styles.td, textAlign: "right" }}>{fmt(eq.qty, 2)}</td>
                 <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_mo)}</td>
-              </tr>
-              <tr>
-                <td style={styles.td}>🏢 Indireto</td>
-                <td colSpan={3} style={{ ...styles.td, color: S.muted, fontStyle: "italic" }}>
-                  rateado por pessoas indiretas {semIndiretos ? "(nenhuma alocada)" : ""}
-                </td>
-                <td style={{ ...styles.td, textAlign: "right", fontWeight: 700 }}>{fmtBRL(eq.total_indireto || 0)}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
         <div style={{ fontSize: 10.5, color: S.muted, marginTop: 2 }}>
-          ⓜ horas-máquina = volumeInSitu ÷ Σ produção base · ⓟ horas-projeto = dias × horas/dia × meses
+          ⓜ horas-máquina = volumeInSitu ÷ Σ produção base · Ⓕ frente esc. = volume escavação ÷ produção escavadeiras · ⓟ horas-projeto = dias × horas/dia × meses
         </div>
+        {usaFrenteEscavacaoDiesel && (
+          <div style={{ fontSize: 10.5, color: S.muted, marginTop: 4, lineHeight: 1.5 }}>
+            <b style={{ color: S.text }}>Origem das horas do diesel:</b> Frente de escavação.{" "}
+            {eq.horas_maquina_origem}
+            {" "}Item de origem: {eq.item_origem_horas_diesel || "Escavação e Carga"}.
+            {" "}Item alocado: {eq.item_alocado_horas_diesel || "—"}.
+          </div>
+        )}
+        {(eq.formula_diesel || eq.formula_manutencao || eq.formula_mao_obra) && (
+          <div style={{ fontSize: 10.5, color: S.muted, marginTop: 4, lineHeight: 1.5 }}>
+            <b style={{ color: S.text }}>Fórmulas:</b>{" "}
+            Diesel: {eq.formula_diesel_descricao || "custo_h_diesel × horas × qty"} ({eq.formula_diesel || "—"}).{" "}
+            Manutenção: {eq.formula_manutencao_descricao || "custo_h_manutencao × horas × qty"} ({eq.formula_manutencao || "—"}).{" "}
+            Mão de obra: {eq.formula_mao_obra_descricao || "custo_h_mao_obra × horas × qty"} ({eq.formula_mao_obra || "—"}).
+          </div>
+        )}
 
-        <div style={styles.subGroupTitle}>Rateio em R$/{unit || "m³"}</div>
+        <div style={styles.subGroupTitle}>Rateio individual sem indireto e sem markup</div>
         <div style={{ overflowX: "auto" }}>
           <table style={styles.table}>
             <thead>
@@ -621,10 +687,9 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
               </tr>
             </thead>
             <tbody>
-              <RateioRow label="⛽ Diesel"      total={eq.total_diesel}     ref={eq.volume_ref_diesel}     tipo={baseLabel(eq.volume_ref_diesel_tipo)}     valor={eq.diesel_R$_m3} unit={unit} />
-              <RateioRow label="🔧 Manutenção"  total={eq.total_manutencao} ref={eq.volume_ref_manutencao} tipo={baseLabel(eq.volume_ref_manutencao_tipo)} valor={eq.manutencao_R$_m3} unit={unit} />
-              <RateioRow label="👷 Mão de obra" total={eq.total_mo}         ref={eq.volume_ref_mo}         tipo={baseLabel(eq.volume_ref_mo_tipo)}         valor={eq.mo_R$_m3} unit={unit} />
-              <RateioRow label="🏢 Indireto"    total={eq.total_indireto}   ref={eq.volume_ref_indireto}   tipo={baseLabel(eq.volume_ref_indireto_tipo)}   valor={eq.indireto_R$_m3} unit={unit} />
+              <RateioRow label="⛽ Diesel"      total={eq.total_diesel}     ref={volumeConsolidacao} tipo={volumeConsolidacaoLabel} valor={eq.diesel_unitario_consolidacao ?? eq.diesel_R$_m3} unit={unit} />
+              <RateioRow label="🔧 Manutenção"  total={eq.total_manutencao} ref={volumeConsolidacao} tipo={volumeConsolidacaoLabel} valor={eq.manutencao_unitaria_consolidacao ?? eq.manutencao_R$_m3} unit={unit} />
+              <RateioRow label="👷 Mão de obra" total={eq.total_mo}         ref={volumeConsolidacao} tipo={volumeConsolidacaoLabel} valor={eq.mao_obra_unitaria_consolidacao ?? eq.mo_R$_m3} unit={unit} />
             </tbody>
           </table>
         </div>
@@ -639,12 +704,12 @@ function CardComposicaoEquipamento({ eq, ctx, unit, semIndiretos }) {
           gridTemplateColumns: "repeat(2, 1fr)",
           gap: 10,
         }}>
-          <KV label={`Custo unitário`} value={`${fmtBRL(eq.custo_R$_m3)}/${unit || "m³"}`} />
-          <KV label={`Markup (${eq.categoria})`} value={`${fmt(eq.markup, 2)}×`} />
-          <KV label={`Preço unitário`} value={`${fmtBRL(eq.preco_R$_m3)}/${unit || "m³"}`} accent />
-          <KV label="Total desta máquina na obra"
-              value={fmtBRL(eq.total_maquina_obra_R$)}
-              hint={`= ${fmtBRL(eq.preco_R$_m3)} × ${fmt(eq.volume_totalizacao ?? ctx?.volumeInSitu ?? 0, 2)} ${unit || "m³"} ${eq.volume_totalizacao_tipo === "auxiliar_in_situ" ? "auxiliar in situ" : "in situ"}`}
+          <KV label="Custo unitário sem indireto" value={`${fmtBRL(custoSemMarkup)}/${unit || "m³"}`} />
+          <KV label="Markup individual" value="não aplicado" />
+          <KV label="Indireto individual" value={semIndiretos ? "não alocado" : "não aplicado"} />
+          <KV label="Total individual sem markup"
+              value={fmtBRL(totalSemMarkup)}
+              hint={`= ${fmtBRL(custoSemMarkup)} × ${fmt(volumeConsolidacao, 2)} ${unit || "m³"} ${volumeConsolidacaoLabel}`}
               accent />
         </div>
       </div>
@@ -669,6 +734,74 @@ function RateioRow({ label, total, ref, tipo, valor, unit }) {
         {fmtBRL(valor)}/{unit || "m³"}
       </td>
     </tr>
+  );
+}
+
+function ConsolidacaoCategoriasTabela({ grupos, unit }) {
+  if (!grupos?.length) return null;
+  return (
+    <div style={{ ...styles.block, ...styles.fullSpan }}>
+      <div style={styles.blockHeader}>
+        <div style={styles.blockTitle}>
+          <span style={styles.stepBadge}>3B</span>
+          <span>{grupos.length === 1 ? `Consolidação da categoria ${grupos[0].categoria}` : "Consolidação por categoria"}</span>
+        </div>
+        <div style={styles.blockHint}>custos unitários somados antes do markup</div>
+      </div>
+      <div style={styles.blockBody}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                {["Categoria", "Diesel unit.", "Manutenção unit.", "Mão de obra unit.", "Indireto único", "Custo unit. consolidado", "Markup", "Preço unitário", "Total"].map((h) => (
+                  <th key={h} style={{ ...styles.th, textAlign: h === "Categoria" ? "left" : "right" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grupos.map((g) => {
+                const equipamentos = g.equipamentosIncluidos || g.equipamentos_incluidos || [];
+                return (
+                  <tr key={g.categoria}>
+                    <td style={styles.td} title={equipamentos.join(", ")}>
+                      <div style={{ fontWeight: 800 }}>{g.categoria}</div>
+                      <div style={{ color: S.muted, fontSize: 10.5 }}>
+                        {equipamentos.join(", ")}
+                      </div>
+                      <div style={{ color: S.muted, fontSize: 10.5 }}>
+                        Indireto unico: {fmtBRL(g.indiretoUnicoAplicado ?? g.indireto_unico_aplicado ?? g.somaIndiretos ?? g.soma_indiretos)}
+                        {" "}· origem: {g.origemIndireto || g.origem_indireto || "calculo geral do projeto"}
+                        {" "}· base: {g.baseRateioIndireto || g.base_rateio_indireto || "in_situ"}
+                      </div>
+                      <div style={{ color: S.muted, fontSize: 10.5 }}>
+                        Custos diretos ÷ {fmt(g.volumeReferenciaCustosDiretos ?? g.volume_referencia_custos_diretos, 2)} {unit || "m³"} {g.volumeReferenciaCustosDiretosTipo || g.volume_referencia_custos_diretos_tipo || "empolado"}
+                        {" "}· total × {fmt(g.volumeReferenciaTotalFinal ?? g.volume_referencia_total_final ?? g.volumeReferencia ?? g.volume_referencia, 2)} {unit || "m³"} {g.volumeReferenciaTotalFinalTipo || g.volume_referencia_total_final_tipo || "in_situ"}
+                      </div>
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(g.somaDieselUnitario ?? g.soma_diesel_unitario)}/{unit || "m³"}</td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(g.somaManutencaoUnitaria ?? g.soma_manutencao_unitaria)}/{unit || "m³"}</td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(g.somaMaoDeObraUnitaria ?? g.soma_mao_de_obra_unitaria)}/{unit || "m³"}</td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>{fmtBRL(g.indireto_R$_m3 ?? ((g.indiretoUnicoAplicado ?? g.indireto_unico_aplicado ?? 0) / (g.volumeReferencia || g.volume_referencia || 1)))}/{unit || "m³"}</td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>
+                      {fmtBRL(g.custoUnitarioAgrupado ?? g.custo_unitario_agrupado)}/{unit || "m³"}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right" }}>
+                      {fmt(g.markupCategoria ?? g.markup_categoria, 2)}×
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: 800, color: S.accent }}>
+                      {fmtBRL(g.precoUnitarioFinal ?? g.preco_unitario_final)}/{unit || "m³"}
+                    </td>
+                    <td style={{ ...styles.td, textAlign: "right", fontWeight: 900, color: S.accent }}>
+                      {fmtBRL(g.totalFinalGrupo ?? g.total_final_grupo)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -700,6 +833,9 @@ export default function ComposicaoPreco({ detalhes, unit }) {
 
   const a = detalhes.auditoria || {};
   const equipamentos = a.equipamentos || [];
+  const consolidacaoCategorias = Array.isArray(a.consolidacaoCategorias)
+    ? a.consolidacaoCategorias
+    : (Array.isArray(a.consolidacao_categorias) ? a.consolidacao_categorias : []);
   const custoBase = a.custoBase || [];
   const decompUnitaria = a.decomposicaoUnitaria || [];
   const produtividade = a.produtividade || [];
@@ -933,6 +1069,9 @@ export default function ComposicaoPreco({ detalhes, unit }) {
               <CardComposicaoEquipamento eq={eq} ctx={ctx} unit={unit} semIndiretos={semIndiretos} />
             </div>
           ))}
+
+          {/* 3B — CONSOLIDAÇÃO POR CATEGORIA */}
+          <ConsolidacaoCategoriasTabela grupos={consolidacaoCategorias} unit={unit} />
 
           {/* 4 — RESUMO DO ITEM */}
           <div style={{ ...styles.block, ...styles.fullSpan }}>

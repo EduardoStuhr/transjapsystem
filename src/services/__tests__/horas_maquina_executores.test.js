@@ -90,6 +90,49 @@ test("Categoria nao mapeada mantem fallback da frota inteira", () => {
     .toBeCloseTo(esperado, 6);
 });
 
+test("Modo João Checon usa J24 das escavadeiras para diesel e horas-projeto para manutencao/MO", () => {
+  const itemSemMapa = {
+    ...itemEscavacao,
+    category: "Sem mapa",
+    modoCalculoEquipamentos: "joao_checon",
+    modeloHorasMaquina: "proprio",
+    modeloHorasMaquinaManual: true,
+    manutencaoHorasBase: "maquina",
+    maoObraHorasBase: "maquina",
+  };
+  const t = calcQuotationTotals([itemSemMapa], equipmentMap, params, {
+    bdi: 0,
+    adminPct: 0,
+    mobilPct: 0,
+    riskPct: 0,
+    indirectPersonnel,
+    volumeEmpoladoObra: 695317.0816,
+  });
+  const auditoria = t.itemsCalc[0].detalhes.auditoria;
+  const ctx = auditoria.contexto;
+  const escavadeira = auditoria.equipamentos.find((e) => e.equipamento === "Escavadeira 320DL");
+  const rolo = auditoria.equipamentos.find((e) => e.equipamento.includes("Rolo Compactador"));
+
+  expect(ctx.reproduzPlanilhaJoaoChecon).toBe(true);
+  expect(ctx.producaoTotalEscavadeirasSelecionadas).toBeCloseTo(153.6, 6);
+  expect(ctx.producaoConjuntoHora).toBeCloseTo(153.6, 6);
+  expect(ctx.dadosContratoJ24).toBeCloseTo(3497.58, 1);
+  expect(rolo.horas_diesel).toBeCloseTo(ctx.dadosContratoJ24, 6);
+  expect(rolo.total_diesel).toBeCloseTo(rolo.diesel_hora * ctx.dadosContratoJ24 * rolo.qty, 6);
+  expect(rolo.horas_manutencao).toBeCloseTo(ctx.horasProjeto, 6);
+  expect(rolo.horas_manutencao_base).toBe("projeto");
+  expect(rolo.horas_mo).toBeCloseTo(ctx.horasProjeto, 6);
+  expect(rolo.horas_mo_base).toBe("projeto");
+  expect(rolo.volume_ref_diesel_tipo).toBe("in_situ");
+  expect(rolo.volume_ref_manutencao_tipo).toBe("in_situ");
+  expect(rolo.volume_ref_mo_tipo).toBe("in_situ");
+  expect(escavadeira.volume_ref_diesel_tipo).toBe("empolado");
+  expect(escavadeira.volume_ref_manutencao_tipo).toBe("empolado");
+  expect(escavadeira.volume_ref_mo_tipo).toBe("empolado");
+  expect(rolo.base_horas_diesel).toBe("frente_escavacao");
+  expect(rolo.formula_diesel_descricao).toMatch(/horasFrenteEscavacao/);
+});
+
 test("Patrol no item de escavacao herda horas das escavadeiras", () => {
   const t = calcula();
   const patrol = t.itemsCalc[0].detalhes.auditoria.equipamentos
@@ -116,8 +159,9 @@ test("Rolo usa consumo e quantidade da planilha", () => {
   expect(rolo.total_maquina_obra_R$).toBeCloseTo(2473434.47, 0);
 });
 
-test("Custo total do item com frota mista bate sem a linha separada de caminhoes", () => {
+test("Custo total do item com frota mista usa consolidação por categoria", () => {
   const t = calcula();
 
-  expect(t.subtotalPrice).toBeCloseTo(6769211.09, 0);
+  expect(t.itemsCalc[0].detalhes.auditoria.consolidacaoCategorias.length).toBeGreaterThan(0);
+  expect(t.subtotalPrice).toBeCloseTo(7050872.14, 0);
 });

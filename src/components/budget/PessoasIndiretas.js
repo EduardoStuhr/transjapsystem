@@ -35,19 +35,54 @@ const toNum = (v, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const modoAlimentacaoParam = (params = {}) =>
+  params?.alimentacao_modo_calculo === "por_pessoa" ? "por_pessoa" : "agrupado";
+
+const quantidadeRateioLinha = (p, modoAlimentacao) => {
+  const qty = toNum(p?.quantidade, 0);
+  if (qty <= 0) return 0;
+  if (p?.tipo === "alimentacao" && modoAlimentacao === "agrupado") return 1;
+  return qty;
+};
+
 // Resolve R$/h para um tipo. Para alimentação sem valor cadastrado,
-// calcula dinamicamente a partir dos parâmetros e do tamanho da equipe.
-function resolveCustoHora(tipo, tabela, params, numOperadoresFrota, numPessoasIndiretas) {
+// calcula dinamicamente pela regra da planilha.
+function resolveCustoHora(pessoa, tabela, params, numOperadoresFrota, numPessoasIndiretas) {
+  const tipo = pessoa?.tipo;
+  const qty = toNum(pessoa?.quantidade, 0);
   const raw = tabela?.[tipo];
-  if (tipo === "alimentacao" && (raw == null || raw === 0)) {
+  if (tipo === "alimentacao") {
     const valorDia = toNum(params?.alimentacao_valor_dia, ASSUMPTIONS.pessoasIndiretas.alimentacao.valorDia);
     const diasMes  = toNum(params?.alimentacao_dias_mes,  ASSUMPTIONS.pessoasIndiretas.alimentacao.diasMes);
     const horasRef = toNum(params?.alimentacao_horas_ref, ASSUMPTIONS.pessoasIndiretas.alimentacao.horasRef);
-    const totalPessoasObra = toNum(numOperadoresFrota, 0) + numPessoasIndiretas;
+    const modoCalculo = modoAlimentacaoParam(params);
+    const quantidadePessoasFallback = toNum(numOperadoresFrota, 0) + numPessoasIndiretas;
+    const quantidadePessoas = modoCalculo === "agrupado"
+      ? (qty > 1 ? qty : quantidadePessoasFallback)
+      : qty;
+    const valorHoraPessoa = horasRef > 0 ? (valorDia * diasMes) / horasRef : 0;
+    const valorHoraGrupo = horasRef > 0 ? (quantidadePessoas * valorDia * diasMes) / horasRef : 0;
+    const valorCalculado = raw == null || raw === 0
+      ? (modoCalculo === "agrupado" ? valorHoraGrupo : valorHoraPessoa)
+      : toNum(raw, 0);
+    const quantidadeUsadaNoTotal = modoCalculo === "agrupado" ? 1 : qty;
     return {
-      valor: horasRef > 0 ? (totalPessoasObra * valorDia * diasMes) / horasRef : 0,
-      fonte: "dinamica",
-      hint: `(${totalPessoasObra} pessoas × ${fmtBRL(valorDia)}/dia × ${fmt(diasMes, 0)} dias) ÷ ${fmt(horasRef, 0)} h`,
+      valor: valorCalculado,
+      fonte: raw == null || raw === 0 ? "dinamica" : "tabela",
+      hint: modoCalculo === "agrupado"
+        ? `(${quantidadePessoas} pessoas × ${fmtBRL(valorDia)}/dia × ${fmt(diasMes, 0)} dias) ÷ ${fmt(horasRef, 0)} h`
+        : `(${fmtBRL(valorDia)}/dia × ${fmt(diasMes, 0)} dias) ÷ ${fmt(horasRef, 0)} h × ${fmt(qty, 0)} pessoas`,
+      alimentacao: {
+        modoCalculo,
+        quantidadePessoas,
+        valorDiario: valorDia,
+        diasMes,
+        horasRef,
+        valorHoraPessoa,
+        valorHoraGrupo,
+        valorHoraCalculado: valorCalculado,
+        quantidadeUsadaNoTotal,
+      },
     };
   }
   return { valor: toNum(raw, 0), fonte: raw == null ? "vazio" : "tabela", hint: "" };
@@ -90,17 +125,32 @@ export default function PessoasIndiretas({ value = [], onChange, params, items =
     return calcNumOperadoresFrota(items, params);
   }, [items, params]);
 
+  const modoAlimentacao = modoAlimentacaoParam(params);
+
   const numPessoasIndiretas = useMemo(
-    () => value.reduce((s, p) => s + (toNum(p.quantidade, 0) > 0 ? toNum(p.quantidade, 0) : 0), 0),
-    [value],
+    () => value.reduce((s, p) => s + quantidadeRateioLinha(p, modoAlimentacao), 0),
+    [value, modoAlimentacao],
   );
 
   const linhas = useMemo(() => {
     return value.map((p, idx) => {
-      const ch = resolveCustoHora(p.tipo, tabela, params, numOperadoresFrota, numPessoasIndiretas);
+      const ch = resolveCustoHora(p, tabela, params, numOperadoresFrota, numPessoasIndiretas);
       const qty = toNum(p.quantidade, 0);
-      const total = roundIndiretoLineTotal(p.tipo, ch.valor * horasProjeto * qty);
-      return { idx, tipo: p.tipo, quantidade: qty, custoHora: ch.valor, fonte: ch.fonte, hint: ch.hint, total };
+      const quantidadeUsadaNoTotal = p.tipo === "alimentacao"
+        ? (ch.alimentacao?.quantidadeUsadaNoTotal ?? qty)
+        : qty;
+      const total = roundIndiretoLineTotal(p.tipo, ch.valor * horasProjeto * quantidadeUsadaNoTotal);
+      return {
+        idx,
+        tipo: p.tipo,
+        quantidade: qty,
+        quantidadeUsadaNoTotal,
+        custoHora: ch.valor,
+        fonte: ch.fonte,
+        hint: ch.hint,
+        total,
+        alimentacao: ch.alimentacao,
+      };
     });
   }, [value, tabela, params, numOperadoresFrota, numPessoasIndiretas, horasProjeto]);
 
@@ -197,6 +247,14 @@ export default function PessoasIndiretas({ value = [], onChange, params, items =
                 <tr key={l.idx} style={{ borderTop: `1px solid ${S.border}` }}>
                   <Td>
                     <span style={{ color: S.text, fontWeight: 600 }}>{tipoLabel(l.tipo)}</span>
+                    {l.alimentacao && (
+                      <div style={{ marginTop: 3, fontSize: 10.5, color: S.muted, lineHeight: 1.45 }}>
+                        modo: {l.alimentacao.modoCalculo === "agrupado" ? "valor agrupado" : "valor por pessoa"}
+                        {" "}· pessoas: {fmt(l.alimentacao.quantidadePessoas, 0)}
+                        {" "}· {fmtBRL(l.alimentacao.valorDiario)}/dia × {fmt(l.alimentacao.diasMes, 0)} dias ÷ {fmt(l.alimentacao.horasRef, 0)} h
+                        {" "}· qtd no total: {fmt(l.quantidadeUsadaNoTotal, 0)}
+                      </div>
+                    )}
                   </Td>
                   <Td align="right">
                     <span
@@ -210,6 +268,12 @@ export default function PessoasIndiretas({ value = [], onChange, params, items =
                     >
                       {fmtBRL(l.custoHora)}
                     </span>
+                    {l.alimentacao && (
+                      <div style={{ marginTop: 3, fontSize: 10.5, color: S.muted, fontFamily: "ui-monospace, monospace" }}>
+                        pessoa {fmtBRL(l.alimentacao.valorHoraPessoa)}/h
+                        {" "}· grupo {fmtBRL(l.alimentacao.valorHoraGrupo)}/h
+                      </div>
+                    )}
                   </Td>
                   <Td align="right">
                     <span style={{ color: S.muted, fontFamily: "ui-monospace, monospace" }}>

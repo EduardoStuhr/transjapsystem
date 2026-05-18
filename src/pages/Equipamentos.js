@@ -17,18 +17,28 @@ const LABEL_CATEGORIA_OPERADOR = {
   operador_trator:             "Operador Trator / Patrol / Adm.",
   auxiliar:                    "Auxiliar (grade / rolo / pipa)",
 };
+const ORIGENS_HORAS_DIESEL = [
+  { value: "proprio_item", label: "Próprio item" },
+  { value: "frente_escavacao", label: "Frente de escavação" },
+  { value: "horas_gerais_contrato", label: "Horas gerais do contrato" },
+  { value: "manual", label: "Manual" },
+];
+const LABEL_ORIGEM_HORAS_DIESEL = Object.fromEntries(
+  ORIGENS_HORAS_DIESEL.map((o) => [o.value, o.label]),
+);
 
 const EMPTY_EQ = {
   name: "", category: "Escavadeira", consumption: 0,
   custo_h_manutencao: 0, categoria_operador: "", custo_h_operador: 0,
-  salario_operador_mensal: 0, baseProductivity: 0, productivity: 0, viagensPorHora: 0, active: true,
+  salario_operador_mensal: 0, baseProductivity: 0, productivity: 0, viagensPorHora: 0,
+  origemHorasDiesel: "proprio_item", horasDieselManual: 0, active: true,
 };
 
 export default function Equipamentos({ equipment, setEquipment, params }) {
   const [modal, setModal] = useState(null);
   const [form,  setForm]  = useState(EMPTY_EQ);
 
-  const TEXT_FIELDS = new Set(["name", "category", "categoria_operador"]);
+  const TEXT_FIELDS = new Set(["name", "category", "categoria_operador", "origemHorasDiesel"]);
   const set = (k, v) =>
     setForm(f => ({ ...f, [k]: TEXT_FIELDS.has(k) ? v : parseFloat(v) || 0 }));
 
@@ -60,7 +70,7 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
         <table className="data-table">
           <thead>
             <tr>
-              {["Equipamento","Categoria","Consumo","C.Diesel/h","C.Manut/h","Operador/h","Custo DIRETO/h","Produt.","Viagens/h",""].map(h => (
+              {["Equipamento","Categoria","Origem diesel","Consumo","C.Diesel/h","C.Manut/h","Operador/h","Custo DIRETO/h","Produt.","Viagens/h",""].map(h => (
                 <th key={h} style={{ textAlign: h === "" ? "center" : "left" }}>{h}</th>
               ))}
             </tr>
@@ -74,6 +84,7 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
                 <tr key={eq.id} style={{ background: i % 2 === 0 ? "transparent" : "#ffffff05", opacity: eq.active ? 1 : 0.4 }}>
                   <td style={{ color: S.text, fontWeight: 600 }}>{eq.name}</td>
                   <td><Badge color={S.accent2}>{eq.category}</Badge></td>
+                  <td style={{ color: S.muted }}>{LABEL_ORIGEM_HORAS_DIESEL[eq.origemHorasDiesel] || "Próprio item"}</td>
                   <td style={{ color: S.muted }}>{eq.consumption} L/h</td>
                   <td style={{ color: "#fb923c" }}>{fmtBRL(c.diesel_hora)}</td>
                   <td style={{ color: S.muted }}>{fmtBRL(c.manutencao_hora)}</td>
@@ -133,9 +144,30 @@ export default function Equipamentos({ equipment, setEquipment, params }) {
               min="0"
               placeholder="Ex: 6"
             />
+            <SectionTitle>Origem das horas do diesel</SectionTitle>
+            <Row>
+              <Select
+                label="Origem horas diesel"
+                value={form.origemHorasDiesel || "proprio_item"}
+                onChange={v => set("origemHorasDiesel", v)}
+                options={ORIGENS_HORAS_DIESEL}
+              />
+              {form.origemHorasDiesel === "manual" && (
+                <Input
+                  label="Horas diesel manuais"
+                  value={form.horasDieselManual || ""}
+                  onChange={v => set("horasDieselManual", v)}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Ex: 1364.91"
+                />
+              )}
+            </Row>
             <p style={{ fontSize: 12, color: S.muted, margin: 0 }}>
               <b>Manutenção:</b> R$/h direto da planilha; vazio (0) cai para o cálculo legado (% do diesel).{" "}
               <b>Operador:</b> R$/h direto vence; senão, usa a tabela por categoria; senão, usa salário × encargos / horas/mês.
+              {" "}<b>Origem diesel:</b> auxiliares da planilha João Checon devem usar frente de escavação.
             </p>
 
             {form.consumption > 0 && (() => {

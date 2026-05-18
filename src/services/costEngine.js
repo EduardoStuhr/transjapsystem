@@ -117,12 +117,63 @@ const usaHorasMaquinaGlobalPorPadrao = (item = {}) => {
   return true;
 };
 
+const isModoPlanilhaJoaoChecon = (item = {}, params = {}) =>
+  item?.modoCalculoEquipamentos === "joao_checon"
+  || params?.modo_calculo_equipamentos === "joao_checon";
+
+const ORIGEM_HORAS_DIESEL = {
+  PROPRIO_ITEM: "proprio_item",
+  FRENTE_ESCAVACAO: "frente_escavacao",
+  HORAS_GERAIS_CONTRATO: "horas_gerais_contrato",
+  MANUAL: "manual",
+};
+
+const normalizeOrigemHorasDiesel = (value) => {
+  const v = normalizeText(value);
+  if (!v) return "";
+  if (v === "frente_escavacao" || v === "frente escavacao" || v === "global_obra" || v === "j24") {
+    return ORIGEM_HORAS_DIESEL.FRENTE_ESCAVACAO;
+  }
+  if (v === "horas_gerais_contrato" || v === "horas gerais contrato" || v === "projeto" || v === "horas_projeto") {
+    return ORIGEM_HORAS_DIESEL.HORAS_GERAIS_CONTRATO;
+  }
+  if (v === "manual") return ORIGEM_HORAS_DIESEL.MANUAL;
+  return ORIGEM_HORAS_DIESEL.PROPRIO_ITEM;
+};
+
+const getOrigemHorasDieselDefault = (eq = {}) => {
+  const explicit = normalizeOrigemHorasDiesel(eq?.origemHorasDiesel ?? eq?.origem_horas_diesel);
+  if (explicit) return explicit;
+  if (isEscavadeira(eq) || isPatrol(eq) || isTratorOuGrade(eq) || isRolo(eq) || isPipa(eq)) {
+    return ORIGEM_HORAS_DIESEL.FRENTE_ESCAVACAO;
+  }
+  return ORIGEM_HORAS_DIESEL.PROPRIO_ITEM;
+};
+
+const labelOrigemHorasDiesel = (origem) => {
+  if (origem === ORIGEM_HORAS_DIESEL.FRENTE_ESCAVACAO) return "Frente de escavação";
+  if (origem === ORIGEM_HORAS_DIESEL.HORAS_GERAIS_CONTRATO) return "Horas gerais do contrato";
+  if (origem === ORIGEM_HORAS_DIESEL.MANUAL) return "Manual";
+  return "Próprio item";
+};
+
+const isItemFrenteEscavacao = (item = {}) => {
+  const texto = normalizeText(`${item?.category || ""} ${item?.categoria || ""} ${item?.desc || ""} ${item?.name || ""}`);
+  return texto.includes("escavacao");
+};
+
 export const calcHorasMaquinaGlobalObraDetalhes = (items = [], equipmentMap = {}) => {
-  const itemEscavacao = (items || []).find((item) =>
-    normalizeText(item?.category).includes("escavacao")
-  );
+  const lista = Array.isArray(items) ? items : [];
+  const temEscavadeiraSelecionada = (item) =>
+    (item?.equipmentLines || []).some((line) => {
+      const eq = equipmentMap[line.equipmentId];
+      return eq && normalizeText(getCategoriaEquipamento(eq)) === "escavadeira";
+    });
+  const itemEscavacao = lista.find((item) => isItemFrenteEscavacao(item) && temEscavadeiraSelecionada(item))
+    || lista.find((item) => isItemFrenteEscavacao(item))
+    || lista.find((item) => temEscavadeiraSelecionada(item));
   if (!itemEscavacao) {
-    return { horas: 0, volumeEscavacao: 0, producaoEscavadeiras: 0, itemEscavacao: null };
+    return { horas: 0, volumeEscavacao: 0, producaoEscavadeiras: 0, itemEscavacao: null, itemOrigem: null };
   }
 
   const volumeEscavacao = toNum(itemEscavacao.volumeInSitu ?? itemEscavacao.quantity, 0);
@@ -140,9 +191,14 @@ export const calcHorasMaquinaGlobalObraDetalhes = (items = [], equipmentMap = {}
 
   return {
     horas: producaoEscavadeiras > 0 ? volumeEscavacao / producaoEscavadeiras : 0,
+    horasFrenteEscavacao: producaoEscavadeiras > 0 ? volumeEscavacao / producaoEscavadeiras : 0,
     volumeEscavacao,
     producaoEscavadeiras,
     itemEscavacao,
+    itemOrigem: itemEscavacao,
+    itemOrigemId: itemEscavacao.id,
+    itemOrigemDesc: itemEscavacao.desc || itemEscavacao.name || itemEscavacao.category || "Escavação e Carga",
+    formula: "horasFrenteEscavacao = volumeInSituEscavacao ÷ producaoConjuntaEscavadeiras",
   };
 };
 
@@ -207,9 +263,10 @@ const getProdutividadeArea = (item = {}, horasDia = 0) => {
   };
 };
 
-const resolveHorasParcela = (base, { horasItem, horasMaquina, horasProjeto, horasManual }) => {
+const resolveHorasParcela = (base, { horasItem, horasMaquina, horasProjeto, horasManual, horasFrenteEscavacao }) => {
   if (base === "manual") return toNum(horasManual, 0);
   if (base === "projeto") return horasProjeto;
+  if (base === "frente_escavacao") return toNum(horasFrenteEscavacao, 0);
   if (base === "item" || base === "execucao_item") return horasItem;
   return horasMaquina;
 };
@@ -287,6 +344,12 @@ const getVolumeRefMOPorCategoria = (categoria, params, volumes, item) => {
 const getVolumeRefIndireto = (params, volumes, item) => {
   if (isItemArea(item)) return volumeRefArea(volumes);
   const tipo = resolveVolumeRefTipo(params?.volume_ref_indireto ?? "in_situ");
+  return buildVolumeRef(tipo, volumes);
+};
+
+const getVolumeRefDiretoPlanilhaJoaoChecon = (categoria, volumes, item) => {
+  if (isItemArea(item)) return volumeRefArea(volumes);
+  const tipo = normalizeText(categoria) === "escavadeira" ? "empolado" : "in_situ";
   return buildVolumeRef(tipo, volumes);
 };
 
@@ -484,7 +547,7 @@ export const roundIndiretoLineTotal = (tipo, total) =>
 // O retorno é o R$/m³ por pessoa — o item soma esse valor uma vez por equipamento ATIVO.
 //
 // Caso especial: tipo "alimentacao" sem custo_h cadastrado → calculado dinamicamente
-// a partir de (numOperadoresFrota + numPessoasIndiretas) e dos parâmetros de alimentação.
+// a partir do modo configurado e dos parâmetros de alimentação.
 //
 // Retorna { rateio, breakdown } se `withBreakdown=true`; caso contrário, número
 // (retro-compat com chamadas existentes na UI).
@@ -520,11 +583,21 @@ export const calcIndiretoRateadoPorM3 = (
     .filter((p) => p?.tipo && TIPOS_NAO_INDIRETOS.has(p.tipo))
     .map((p) => ({ tipo: p.tipo, motivo: "tipo migrado para mão de obra direta" }));
 
-  // Divisor: soma das quantidades de pessoas com qty > 0 — não inclui tipos
-  // com qty=0 nem o número total de chaves cadastradas em params.
+  const modoAlimentacao = params?.alimentacao_modo_calculo === "por_pessoa"
+    ? "por_pessoa"
+    : "agrupado";
+
+  // Divisor: soma das quantidades de pessoas com qty > 0. No modo agrupado,
+  // a quantidade da alimentação representa pessoas alimentadas no grupo e
+  // nao deve inflar o divisor do rateio; a linha conta como 1.
+  const quantidadeRateio = (p) => {
+    const qty = toNum(p?.quantidade, 0);
+    if (qty <= 0) return 0;
+    if (p?.tipo === "alimentacao" && modoAlimentacao === "agrupado") return 1;
+    return qty;
+  };
   const numPessoasIndiretas = validos
-    .filter((p) => toNum(p.quantidade, 0) > 0)
-    .reduce((s, p) => s + toNum(p.quantidade, 0), 0);
+    .reduce((s, p) => s + quantidadeRateio(p), 0);
 
   if (numPessoasIndiretas <= 0) {
     return withBreakdown ? { ...emptyBreakdown, ignorados } : 0;
@@ -546,26 +619,52 @@ export const calcIndiretoRateadoPorM3 = (
     let custoHora = tabela?.[pessoa.tipo];
     let fonte = "tabela";
 
+    let quantidadeUsadaNoTotal = qty;
+    let auditoriaAlimentacao = null;
+
     // Caso especial — alimentação calculada dinamicamente.
-    if (pessoa.tipo === "alimentacao" && (custoHora == null || custoHora === 0)) {
-      const totalPessoasObra = toNum(numOperadoresFrota, 0) + numPessoasIndiretas;
-      custoHora = horasRef > 0
-        ? (totalPessoasObra * valorDia * diasMes) / horasRef
-        : 0;
-      fonte = "alimentacao_dinamica";
+    if (pessoa.tipo === "alimentacao") {
+      const quantidadePessoasFallback = toNum(numOperadoresFrota, 0) + numPessoasIndiretas;
+      const quantidadePessoas = modoAlimentacao === "agrupado"
+        ? (qty > 1 ? qty : quantidadePessoasFallback)
+        : qty;
+      const valorHoraPessoa = horasRef > 0 ? (valorDia * diasMes) / horasRef : 0;
+      const valorHoraGrupo = horasRef > 0 ? (quantidadePessoas * valorDia * diasMes) / horasRef : 0;
+
+      if (custoHora == null || custoHora === 0) {
+        custoHora = modoAlimentacao === "agrupado" ? valorHoraGrupo : valorHoraPessoa;
+        fonte = "alimentacao_dinamica";
+      }
+
+      quantidadeUsadaNoTotal = modoAlimentacao === "agrupado" ? 1 : qty;
+      auditoriaAlimentacao = {
+        modoCalculo: modoAlimentacao,
+        quantidadePessoas,
+        valorDiario: valorDia,
+        diasMes,
+        horasRef,
+        valorHoraPessoa,
+        valorHoraGrupo,
+        valorHoraCalculado: toNum(custoHora, 0),
+        horasTotaisProjeto: horas,
+        quantidadeUsadaNoTotal,
+      };
     }
 
     if (custoHora == null) continue;
     const ch = toNum(custoHora, 0);
-    const totalLinha = roundIndiretoLineTotal(pessoa.tipo, ch * horas * qty);
+    const totalLinha = roundIndiretoLineTotal(pessoa.tipo, ch * horas * quantidadeUsadaNoTotal);
     totalIndireto += totalLinha;
     linhas.push({
       tipo: pessoa.tipo,
       custoHora: ch,
       horas,
       quantidade: qty,
+      quantidadeRateio: quantidadeRateio(pessoa),
+      quantidadeUsadaNoTotal,
       total: totalLinha,
       fonte,
+      alimentacao: auditoriaAlimentacao,
     });
   }
 
@@ -923,31 +1022,58 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   const produtividadeDiaria = composicaoArea && produtividadeArea.produtividadeHorariaInformada > 0
     ? produtividadeArea.produtividadeHorariaInformada * horasDia
     : 0;
+  const modoPlanilhaJoaoChecon = isModoPlanilhaJoaoChecon(item, params);
+  const linhasEscavadeirasSelecionadas = equipmentLines.filter((l) => {
+    const eq = equipmentMap[l.equipmentId];
+    return normalizeText(getCategoriaEquipamento(eq)) === "escavadeira";
+  });
+  const producaoTotalEscavadeirasSelecionadas = linhasEscavadeirasSelecionadas.reduce((s, l) => {
+    const eq = equipmentMap[l.equipmentId];
+    const q = toNum(l.quantity ?? l.qty, 0);
+    const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
+    return s + prod * q;
+  }, 0);
   const producaoConjuntoHora = composicaoArea
     ? produtividadeArea.produtividadeRealPorEquipamento * quantidadeEquipamentosArea
-    : linhasParaProducao.reduce((s, l) => {
+    : (modoPlanilhaJoaoChecon
+      ? producaoTotalEscavadeirasSelecionadas
+      : linhasParaProducao.reduce((s, l) => {
       const eq = equipmentMap[l.equipmentId];
       const q = toNum(l.quantity ?? l.qty, 0);
       const prod = toNum(eq?.baseProductivity ?? eq?.productivity, 0);
       return s + prod * q;
-    }, 0);
+    }, 0));
 
   const horasMaquinaProprias = producaoConjuntoHora > 0
     ? volumeInSitu / producaoConjuntoHora
     : 0;
-  const modeloHorasMaquina = item.modeloHorasMaquinaManual === true
+  const modeloHorasMaquinaBase = item.modeloHorasMaquinaManual === true
     ? (item.modeloHorasMaquina || "proprio")
     : (usaHorasMaquinaGlobalPorPadrao(item) ? "global_obra" : "proprio");
+  const modeloHorasMaquina = modoPlanilhaJoaoChecon
+    ? "joao_checon"
+    : modeloHorasMaquinaBase;
   const horasMaquinaGlobalObra = toNum(params?.horas_maquina_global_obra, 0);
-  const usaHorasMaquinaGlobal = modeloHorasMaquina === "global_obra" && horasMaquinaGlobalObra > 0;
+  const horasFrenteEscavacao = toNum(
+    params?.horas_frente_escavacao ?? params?.horasFrenteEscavacao,
+    horasMaquinaGlobalObra,
+  );
+  const horasFrenteEscavacaoInfo = params?.horas_frente_escavacao_info
+    || params?.horasFrenteEscavacaoInfo
+    || {};
+  const usaHorasMaquinaGlobal = !modoPlanilhaJoaoChecon && modeloHorasMaquina === "global_obra" && horasMaquinaGlobalObra > 0;
   const horasMaquinaNecessarias = usaHorasMaquinaGlobal
     ? horasMaquinaGlobalObra
     : horasMaquinaProprias;
   const horasMaquinaOrigem = usaHorasMaquinaGlobal
     ? `Global da obra: ${horasMaquinaGlobalObra.toFixed(2)} h`
-    : (producaoConjuntoHora > 0
+    : (modoPlanilhaJoaoChecon
+      ? (producaoConjuntoHora > 0
+        ? `Planilha João Checon (Dados do Contrato!J24): ${volumeInSitu.toFixed(2)} / ${producaoConjuntoHora.toFixed(2)} = ${horasMaquinaProprias.toFixed(2)} h`
+        : "Planilha João Checon (Dados do Contrato!J24): produção das escavadeiras = 0")
+      : (producaoConjuntoHora > 0
       ? `Próprio do item: ${volumeInSitu.toFixed(2)} / ${producaoConjuntoHora.toFixed(2)} = ${horasMaquinaProprias.toFixed(2)} h`
-      : "Próprio do item: produção conjunta = 0");
+      : "Próprio do item: produção conjunta = 0"));
   const horasDiaItem = toPositiveNum(item.horasDiaItem, horasDia);
   const modoCalculoPrazoItem = item.modoCalculoPrazoItem || (composicaoArea ? "automatico" : "manual");
   const produtividadeDiariaReal = composicaoArea
@@ -961,19 +1087,23 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   const horasItem = composicaoArea
     ? diasUteisItem * horasDiaItem
     : horasMaquinaProprias;
-  const horasBaseManutencaoTipo = item.manutencaoHorasBase || (composicaoArea ? "item" : "projeto");
-  const horasBaseMOTipo = item.maoObraHorasBase || (composicaoArea ? "item" : "projeto");
+  const horasBaseManutencaoOriginal = item.manutencaoHorasBase || (composicaoArea ? "item" : "projeto");
+  const horasBaseMOOriginal = item.maoObraHorasBase || (composicaoArea ? "item" : "projeto");
+  const horasBaseManutencaoTipo = modoPlanilhaJoaoChecon ? "projeto" : horasBaseManutencaoOriginal;
+  const horasBaseMOTipo = modoPlanilhaJoaoChecon ? "projeto" : horasBaseMOOriginal;
   const horasManutencao = resolveHorasParcela(horasBaseManutencaoTipo, {
     horasItem,
     horasMaquina: horasMaquinaProprias,
     horasProjeto,
     horasManual: item.manutencaoHorasManual,
+    horasFrenteEscavacao,
   });
   const horasMO = resolveHorasParcela(horasBaseMOTipo, {
     horasItem,
     horasMaquina: horasMaquinaProprias,
     horasProjeto,
     horasManual: item.maoObraHorasManual,
+    horasFrenteEscavacao,
   });
 
   // Indireto rateado: mesmo R$/m³ para cada equipamento ativo. A fonte
@@ -1019,6 +1149,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   const detalheEquipamentos = [];
   let totalCustoEquipamentosObra = 0;
   let totalPrecoEquipamentosObra = 0;
+  let totalCustoTransporteAgregado = 0;
+  let totalPrecoTransporteAgregado = 0;
 
   // Denominadores por parcela (manut/MO/indireto são uniformes para todos
   // os equipamentos do item — diesel varia por categoria).
@@ -1039,17 +1171,82 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
     // (esses fatores não podem contaminar o rateio de diesel/manut/MO).
     // O cálculo de ciclo (viagensPorHora) é preservado apenas como metadata
     // de auditoria — não substitui mais as horas canônicas.
-    const refDiesel = getVolumeRefDieselPorCategoria(eq?.category, params, volumes, item);
-    const refManut = getVolumeRefManutencaoPorCategoria(eq?.category, params, volumes, item);
-    const refMO = getVolumeRefMOPorCategoria(eq?.category, params, volumes, item);
+    const categoriaEquipamento = getCategoriaEquipamento(eq);
+    const refDiretoPlanilhaJoaoChecon = modoPlanilhaJoaoChecon
+      ? getVolumeRefDiretoPlanilhaJoaoChecon(categoriaEquipamento, volumes, item)
+      : null;
+    const refDiesel = refDiretoPlanilhaJoaoChecon
+      || getVolumeRefDieselPorCategoria(categoriaEquipamento, params, volumes, item);
+    const refManut = refDiretoPlanilhaJoaoChecon
+      || getVolumeRefManutencaoPorCategoria(categoriaEquipamento, params, volumes, item);
+    const refMO = refDiretoPlanilhaJoaoChecon
+      || getVolumeRefMOPorCategoria(categoriaEquipamento, params, volumes, item);
     const volumeBaseTotal = getVolumeBasePorEquipamentoOuCategoria({
       eq,
       item: itemVolumeBase,
       params,
       volumes,
     });
+    const origemHorasDiesel = normalizeOrigemHorasDiesel(line.origemHorasDiesel)
+      || getOrigemHorasDieselDefault(eq);
+    const horasDieselManual = toNum(
+      line.horasDieselManual ?? line.horas_diesel_manual ?? eq?.horasDieselManual ?? eq?.horas_diesel_manual ?? item.horasDieselManual,
+      0,
+    );
+    const prodEqLinha = toNum(eq?.baseProductivity ?? eq?.productivity, 0) * Math.max(qty, 1);
+    const horasPropriasEquipamento = prodEqLinha > 0 ? volumeInSitu / prodEqLinha : horasMaquinaProprias;
+    const horasFrenteDisponivel = horasFrenteEscavacao > 0;
+    let horasDieselEq = horasMaquinaNecessarias;
+    let baseHorasDiesel = usaHorasMaquinaGlobal ? "global_obra" : "proprio_item";
+    let origemHorasDieselAplicada = origemHorasDiesel;
+    let horasDieselFormula = horasMaquinaOrigem;
+    let itemOrigemHorasDiesel = item.desc || item.name || item.category || "";
+    let itemOrigemHorasDieselId = item.id || null;
+    let validacaoHorasDiesel = null;
 
-    const totalDieselEq = c.diesel_hora * horasMaquinaNecessarias * qty;
+    if (origemHorasDiesel === ORIGEM_HORAS_DIESEL.FRENTE_ESCAVACAO) {
+      if (horasFrenteDisponivel) {
+        horasDieselEq = horasFrenteEscavacao;
+        baseHorasDiesel = "frente_escavacao";
+        itemOrigemHorasDiesel = horasFrenteEscavacaoInfo.itemOrigemDesc
+          || horasFrenteEscavacaoInfo.itemOrigem?.desc
+          || horasFrenteEscavacaoInfo.itemOrigem?.name
+          || "Escavação e Carga";
+        itemOrigemHorasDieselId = horasFrenteEscavacaoInfo.itemOrigemId
+          || horasFrenteEscavacaoInfo.itemOrigem?.id
+          || null;
+        horasDieselFormula = `Frente de escavação (Dados do Contrato!J24): ${fmt(horasFrenteEscavacaoInfo.volumeEscavacao || volumeInSitu, 2)} / ${fmt(horasFrenteEscavacaoInfo.producaoEscavadeiras || producaoTotalEscavadeirasSelecionadas || producaoConjuntoHora, 2)} = ${fmt(horasDieselEq, 2)} h`;
+      } else {
+        horasDieselEq = horasMaquinaNecessarias;
+        if (producaoTotalEscavadeirasSelecionadas > 0) {
+          baseHorasDiesel = "frente_escavacao";
+          itemOrigemHorasDiesel = item.desc || item.name || item.category || "Escavação e Carga";
+          itemOrigemHorasDieselId = item.id || null;
+          horasDieselFormula = `Frente de escavação do item: ${fmt(volumeInSitu, 2)} / ${fmt(producaoTotalEscavadeirasSelecionadas, 2)} = ${fmt(horasDieselEq, 2)} h`;
+        } else {
+          origemHorasDieselAplicada = ORIGEM_HORAS_DIESEL.PROPRIO_ITEM;
+          baseHorasDiesel = usaHorasMaquinaGlobal ? "global_obra" : "proprio_item";
+          horasDieselFormula = `${labelOrigemHorasDiesel(origemHorasDiesel)} sem horasFrenteEscavacao disponível; usando ${horasMaquinaOrigem}`;
+          validacaoHorasDiesel = `${eq?.name || "Equipamento"} configurado para Frente de escavação, mas horasFrenteEscavacao não foi calculada. Verifique o item Escavação e Carga com escavadeira.`;
+        }
+      }
+    } else if (origemHorasDiesel === ORIGEM_HORAS_DIESEL.HORAS_GERAIS_CONTRATO) {
+      horasDieselEq = horasProjeto;
+      baseHorasDiesel = "horas_gerais_contrato";
+      horasDieselFormula = `Horas gerais do contrato: ${fmt(prazoMeses, 0)} × ${fmt(diasUteisMes, 0)} × ${fmt(horasDia, 0)} = ${fmt(horasDieselEq, 2)} h`;
+    } else if (origemHorasDiesel === ORIGEM_HORAS_DIESEL.MANUAL) {
+      horasDieselEq = horasDieselManual;
+      baseHorasDiesel = "manual";
+      horasDieselFormula = `Manual: ${fmt(horasDieselEq, 2)} h`;
+    } else if (origemHorasDiesel === ORIGEM_HORAS_DIESEL.PROPRIO_ITEM) {
+      horasDieselEq = horasPropriasEquipamento;
+      baseHorasDiesel = "proprio_item";
+      horasDieselFormula = prodEqLinha > 0
+        ? `Próprio item: ${fmt(volumeInSitu, 2)} / ${fmt(prodEqLinha, 2)} = ${fmt(horasDieselEq, 2)} h`
+        : horasMaquinaOrigem;
+    }
+
+    const totalDieselEq = c.diesel_hora * horasDieselEq * qty;
     const totalManutEq = horasBaseManutencaoTipo === "fixo"
       ? toNum(item.manutencaoValorFixo, 0) * qty
       : c.manutencao_hora * horasManutencao * qty;
@@ -1069,19 +1266,39 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
             : indiretoBreakdown.totalIndiretoPorEquipamento;
 
     // Metadata informativa do ciclo de viagens (não influencia mais o cálculo).
-    const dieselCalcMeta = calcDieselUnitarioPorEquipamento({
+    const dieselCalcMetaBase = calcDieselUnitarioPorEquipamento({
       eq, item, params, volumes,
       quantidade: qty,
       dieselHoraTotal: c.diesel_hora * qty,
-      fallbackHoras: horasMaquinaNecessarias,
+      fallbackHoras: horasDieselEq,
     });
+    const dieselCalcMeta = modoPlanilhaJoaoChecon
+      ? {
+        ...dieselCalcMetaBase,
+        denominador: refDiesel.valor,
+        denominadorTipo: refDiesel.tipo,
+        baseRateio: refDiesel.tipo === "area"
+          ? "area"
+          : refDiesel.tipo === "empolado"
+            ? "m3 empolado"
+            : "m3 in situ",
+      }
+      : dieselCalcMetaBase;
 
     const dieselEqM3 = refDiesel.valor > 0 ? totalDieselEq / refDiesel.valor : 0;
     const manutEqM3 = refManut.valor > 0 ? totalManutEq / refManut.valor : 0;
     const moEqM3 = refMO.valor > 0 ? totalMOEq / refMO.valor : 0;
     const indiretoEqM3 = refIndireto.valor > 0 ? totalIndiretoEq / refIndireto.valor : 0;
+    const volumeReferenciaDireta = refDiesel.valor;
+    const volumeReferenciaDiretaTipo = refDiesel.tipo;
+    const dieselUnitarioConsolidacao = dieselEqM3;
+    const manutencaoUnitariaConsolidacao = manutEqM3;
+    const maoObraUnitariaConsolidacao = moEqM3;
+    const custoUnitarioSemIndireto = dieselUnitarioConsolidacao
+      + manutencaoUnitariaConsolidacao
+      + maoObraUnitariaConsolidacao;
+    const totalIndividualSemMarkup = custoUnitarioSemIndireto * volumeReferenciaDireta;
 
-    const categoriaEquipamento = getCategoriaEquipamento(eq);
     const markupCategoria = getMarkupPorCategoria(params, categoriaEquipamento);
     const markupEq = item.markupManual === true || composicaoArea
       ? toPositiveNum(item.markup, markupCategoria)
@@ -1096,15 +1313,13 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       ? totalCustoMaquinaObra / volumeBaseTotal.valor
       : 0;
     const precoEqM3 = custoEqM3 * markupEq;
-
-    custo_unitario += custoEqM3;
-    preco_unitario += precoEqM3;
-    dieselR$M3_total += dieselEqM3;
-    manutR$M3_total += manutEqM3;
-    moR$M3_total += moEqM3;
-    indiretoR$M3_total += indiretoEqM3;
-    totalCustoEquipamentosObra += totalCustoMaquinaObra;
-    totalPrecoEquipamentosObra += totalMaquinaObra;
+    const formulaDiesel = `${fmtBRL(c.diesel_hora)}/h × ${fmt(horasDieselEq, 2)} h × ${fmt(qty, 2)} = ${fmtBRL(totalDieselEq)}`;
+    const formulaManutencao = horasBaseManutencaoTipo === "fixo"
+      ? `${fmtBRL(toNum(item.manutencaoValorFixo, 0))} fixo × ${fmt(qty, 2)} = ${fmtBRL(totalManutEq)}`
+      : `${fmtBRL(c.manutencao_hora)}/h × ${fmt(horasManutencao, 2)} h × ${fmt(qty, 2)} = ${fmtBRL(totalManutEq)}`;
+    const formulaMaoObra = horasBaseMOTipo === "fixo"
+      ? `${fmtBRL(toNum(item.maoObraValorFixo, 0))} fixo × ${fmt(qty, 2)} = ${fmtBRL(totalMOEq)}`
+      : `${fmtBRL(c.operador_hora)}/h × ${fmt(horasMO, 2)} h × ${fmt(qty, 2)} = ${fmtBRL(totalMOEq)}`;
 
     detalheEquipamentos.push({
       equipmentId: line.equipmentId,
@@ -1123,16 +1338,47 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       operador_hora: c.operador_hora,
 
       // horas usadas em cada parcela
-      horas_diesel: horasMaquinaNecessarias,
-      modelo_horas_maquina: modeloHorasMaquina,
-      horas_maquina_aplicada: horasMaquinaNecessarias,
+      horas_diesel: horasDieselEq,
+      modelo_horas_maquina: baseHorasDiesel,
+      horas_maquina_aplicada: horasDieselEq,
       horas_maquina_propria: horasMaquinaProprias,
+      horas_proprias_equipamento: horasPropriasEquipamento,
       horas_maquina_global_obra: horasMaquinaGlobalObra,
-      horas_maquina_origem: horasMaquinaOrigem,
+      horas_frente_escavacao: horasFrenteEscavacao,
+      horas_maquina_origem: horasDieselFormula,
       horas_manutencao: horasManutencao,
       horas_manutencao_base: horasBaseManutencaoTipo,
       horas_mo: horasMO,
       horas_mo_base: horasBaseMOTipo,
+      modo_calculo_equipamentos: modoPlanilhaJoaoChecon ? "joao_checon" : "padrao",
+      reproduz_planilha_joao_checon: modoPlanilhaJoaoChecon,
+      origem_horas_diesel: origemHorasDiesel,
+      origem_horas_diesel_aplicada: origemHorasDieselAplicada,
+      origem_horas_diesel_label: labelOrigemHorasDiesel(origemHorasDiesel),
+      base_horas_diesel: baseHorasDiesel,
+      item_origem_horas_diesel: itemOrigemHorasDiesel,
+      item_origem_horas_diesel_id: itemOrigemHorasDieselId,
+      item_alocado_horas_diesel: item.desc || item.name || item.category || "",
+      item_alocado_horas_diesel_id: item.id || null,
+      validacao_horas_diesel: validacaoHorasDiesel,
+      base_horas_manutencao: horasBaseManutencaoTipo,
+      base_horas_mao_obra: horasBaseMOTipo,
+      formula_diesel: formulaDiesel,
+      formula_manutencao: formulaManutencao,
+      formula_mao_obra: formulaMaoObra,
+      formula_diesel_descricao: baseHorasDiesel === "frente_escavacao"
+        ? "custo_h_diesel × horasFrenteEscavacao (Dados do Contrato!J24) × quantidade"
+        : (baseHorasDiesel === "horas_gerais_contrato"
+          ? "custo_h_diesel × horas_gerais_do_contrato × quantidade"
+          : "custo_h_diesel × horas_maquina_aplicada × quantidade"),
+      formula_manutencao_descricao: modoPlanilhaJoaoChecon
+        ? "custo_h_manutencao × horas_totais_do_projeto × quantidade"
+        : `custo_h_manutencao × base ${horasBaseManutencaoTipo} × quantidade`,
+      formula_mao_obra_descricao: modoPlanilhaJoaoChecon
+        ? "custo_h_mao_obra × horas_totais_do_projeto × quantidade"
+        : `custo_h_mao_obra × base ${horasBaseMOTipo} × quantidade`,
+      base_divisao_unitario: refDiesel.tipo,
+      base_divisao_unitario_label: refDiesel.label,
 
       // totais R$
       total_diesel: totalDieselEq,
@@ -1169,6 +1415,17 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       mo_R$_m3: moEqM3,
       indireto_R$_m3: indiretoEqM3,
       custo_R$_m3: custoEqM3,
+      diesel_unitario_consolidacao: dieselUnitarioConsolidacao,
+      manutencao_unitaria_consolidacao: manutencaoUnitariaConsolidacao,
+      mao_obra_unitaria_consolidacao: maoObraUnitariaConsolidacao,
+      custo_unitario_sem_indireto: custoUnitarioSemIndireto,
+      custo_unitario_individual_sem_markup: custoUnitarioSemIndireto,
+      total_individual_sem_markup: totalIndividualSemMarkup,
+      volume_referencia_consolidacao: volumeReferenciaDireta,
+      volume_referencia_consolidacao_tipo: volumeReferenciaDiretaTipo,
+      volume_referencia_total_final: volumeBaseTotal.valor,
+      volume_referencia_total_final_tipo: volumeBaseTotal.tipo,
+      volume_referencia_total_final_origem: volumeBaseTotal.origem,
       markup: markupEq,
       preco_R$_m3: precoEqM3,
       volume_totalizacao: volumeBaseTotal.valor,
@@ -1184,6 +1441,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 
       total_custo_maquina_obra_R$: totalCustoMaquinaObra,
       total_maquina_obra_R$: totalMaquinaObra,
+      total_maquina_obra_informativo_R$: totalMaquinaObra,
+      total_final_usado_no_item: false,
 
       // Campos de auditoria de precisão — sempre numéricos crus
       // (sem toFixed/Math.round/fmt). Quem consumir esses campos não pode
@@ -1193,10 +1452,17 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       preco_R$_m3_preciso: precoEqM3,
       volume_base_total_preciso: volumeBaseTotal.valor,
       total_maquina_obra_preciso_R$: totalMaquinaObra,
+      total_maquina_obra_informativo_preciso_R$: totalMaquinaObra,
       diesel_R$_m3_preciso: dieselEqM3,
       manutencao_R$_m3_preciso: manutEqM3,
       mo_R$_m3_preciso: moEqM3,
       indireto_R$_m3_preciso: indiretoEqM3,
+      diesel_unitario_consolidacao_preciso: dieselUnitarioConsolidacao,
+      manutencao_unitaria_consolidacao_preciso: manutencaoUnitariaConsolidacao,
+      mao_obra_unitaria_consolidacao_preciso: maoObraUnitariaConsolidacao,
+      custo_unitario_sem_indireto_preciso: custoUnitarioSemIndireto,
+      custo_unitario_individual_sem_markup_preciso: custoUnitarioSemIndireto,
+      total_individual_sem_markup_preciso: totalIndividualSemMarkup,
 
       // Compat retro (consumido por algumas telas)
       denominador_rateio: refDiesel.valor,
@@ -1204,6 +1470,138 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       diesel_calculo: dieselCalcMeta,
     });
   }
+
+  const gruposPorCategoria = new Map();
+  detalheEquipamentos
+    .filter((eq) => eq?.tipo !== "transporte_agregado")
+    .forEach((eq) => {
+      const categoria = eq.categoria || "Sem categoria";
+      const markupCategoria = toPositiveNum(eq.markup_preciso ?? eq.markup, getMarkupPorCategoria(params, categoria));
+      const atual = gruposPorCategoria.get(categoria) || {
+        categoria,
+        equipamentos: [],
+        equipamentosIncluidos: [],
+        quantidadeEquipamentos: 0,
+        somaDiesel: 0,
+        somaManutencao: 0,
+        somaMaoDeObra: 0,
+        somaDieselUnitario: 0,
+        somaManutencaoUnitaria: 0,
+        somaMaoDeObraUnitaria: 0,
+        custoUnitarioEquipamentos: 0,
+        somaIndiretosInformativoModelos: 0,
+        custoTotalAgrupado: 0,
+        volumeReferencia: toNum(eq.volume_referencia_total_final ?? eq.volumeReferenciaTotalFinal ?? volumeInSitu, 0),
+        volumeReferenciaTipo: eq.volume_referencia_total_final_tipo ?? eq.volumeReferenciaTotalFinalTipo ?? (composicaoArea ? "area" : "in_situ"),
+        volumeReferenciaCustosDiretos: toNum(eq.volume_referencia_consolidacao, 0),
+        volumeReferenciaCustosDiretosTipo: eq.volume_referencia_consolidacao_tipo,
+        markupCategoria,
+        markupsEncontrados: [],
+      };
+
+      atual.equipamentos.push(eq);
+      atual.equipamentosIncluidos.push(eq.equipamento);
+      atual.quantidadeEquipamentos += toNum(eq.qty, 0);
+      atual.somaDiesel += toNum(eq.total_diesel, 0);
+      atual.somaManutencao += toNum(eq.total_manutencao, 0);
+      atual.somaMaoDeObra += toNum(eq.total_mo, 0);
+      atual.somaDieselUnitario += toNum(eq.diesel_unitario_consolidacao, 0);
+      atual.somaManutencaoUnitaria += toNum(eq.manutencao_unitaria_consolidacao, 0);
+      atual.somaMaoDeObraUnitaria += toNum(eq.mao_obra_unitaria_consolidacao, 0);
+      atual.custoUnitarioEquipamentos += toNum(eq.custo_unitario_sem_indireto, 0);
+      atual.somaIndiretosInformativoModelos += toNum(eq.total_indireto, 0);
+      atual.markupsEncontrados.push(markupCategoria);
+      gruposPorCategoria.set(categoria, atual);
+    });
+
+  const consolidacaoCategorias = Array.from(gruposPorCategoria.values()).map((grupo) => {
+    const indiretoUnicoCategoria = !rateiaIndireto
+      ? 0
+      : (indiretoBreakdown.totalIndiretoPorEquipamento || 0);
+    const volumeReferencia = toNum(grupo.volumeReferencia, 0);
+    const indiretoR$M3Grupo = rateiaIndireto ? (indiretoBreakdown.indiretoPorEquipamentoR$M3 || 0) : 0;
+    const custoUnitarioEquipamentos = grupo.custoUnitarioEquipamentos;
+    const custoUnitarioAgrupado = custoUnitarioEquipamentos + indiretoR$M3Grupo;
+    const custoTotalAgrupado = custoUnitarioAgrupado * volumeReferencia;
+    const markupCategoria = toPositiveNum(grupo.markupCategoria, 1);
+    const precoUnitarioFinal = custoUnitarioAgrupado * markupCategoria;
+    const totalFinalGrupo = precoUnitarioFinal * volumeReferencia;
+
+    return {
+      categoria: grupo.categoria,
+      equipamentosIncluidos: grupo.equipamentosIncluidos,
+      equipamentos_incluidos: grupo.equipamentosIncluidos,
+      quantidadeEquipamentos: grupo.quantidadeEquipamentos,
+      somaDiesel: grupo.somaDiesel,
+      somaManutencao: grupo.somaManutencao,
+      somaMaoDeObra: grupo.somaMaoDeObra,
+      somaDieselUnitario: grupo.somaDieselUnitario,
+      somaManutencaoUnitaria: grupo.somaManutencaoUnitaria,
+      somaMaoDeObraUnitaria: grupo.somaMaoDeObraUnitaria,
+      custoUnitarioEquipamentos,
+      somaIndiretos: indiretoUnicoCategoria,
+      somaIndiretosInformativoModelos: grupo.somaIndiretosInformativoModelos,
+      indiretoUnicoAplicado: indiretoUnicoCategoria,
+      indireto_R$_m3: indiretoR$M3Grupo,
+      origemIndireto: rateiaIndireto
+        ? "calculo geral do projeto"
+        : "rateio desligado no item",
+      baseRateioIndireto: refIndireto.tipo,
+      volumeBaseRateioIndireto: refIndireto.valor,
+      criterioAgrupamentoIndireto: "category/categoria",
+      soma_diesel: grupo.somaDiesel,
+      soma_manutencao: grupo.somaManutencao,
+      soma_mao_de_obra: grupo.somaMaoDeObra,
+      soma_diesel_unitario: grupo.somaDieselUnitario,
+      soma_manutencao_unitaria: grupo.somaManutencaoUnitaria,
+      soma_mao_de_obra_unitaria: grupo.somaMaoDeObraUnitaria,
+      custo_unitario_equipamentos: custoUnitarioEquipamentos,
+      soma_indiretos: indiretoUnicoCategoria,
+      soma_indiretos_informativo_modelos: grupo.somaIndiretosInformativoModelos,
+      indireto_unico_aplicado: indiretoUnicoCategoria,
+      origem_indireto: rateiaIndireto
+        ? "calculo geral do projeto"
+        : "rateio desligado no item",
+      base_rateio_indireto: refIndireto.tipo,
+      volume_base_rateio_indireto: refIndireto.valor,
+      criterio_agrupamento_indireto: "category/categoria",
+      custoTotalAgrupado,
+      custo_total_agrupado: custoTotalAgrupado,
+      volumeReferencia,
+      volume_referencia: volumeReferencia,
+      volumeReferenciaTipo: grupo.volumeReferenciaTipo,
+      volumeReferenciaCustosDiretos: grupo.volumeReferenciaCustosDiretos,
+      volume_referencia_custos_diretos: grupo.volumeReferenciaCustosDiretos,
+      volumeReferenciaCustosDiretosTipo: grupo.volumeReferenciaCustosDiretosTipo,
+      volume_referencia_custos_diretos_tipo: grupo.volumeReferenciaCustosDiretosTipo,
+      volumeReferenciaTotalFinal: volumeReferencia,
+      volume_referencia_total_final: volumeReferencia,
+      volumeReferenciaTotalFinalTipo: grupo.volumeReferenciaTipo,
+      volume_referencia_total_final_tipo: grupo.volumeReferenciaTipo,
+      custoUnitarioAgrupado,
+      custo_unitario_agrupado: custoUnitarioAgrupado,
+      markupCategoria,
+      markup_categoria: markupCategoria,
+      precoUnitarioFinal,
+      preco_unitario_final: precoUnitarioFinal,
+      totalFinalGrupo,
+      total_final_grupo: totalFinalGrupo,
+      regra: "custos somados por categoria; markup aplicado uma vez sobre o custo unitario agrupado",
+      evitaDuploMarkup: grupo.equipamentos.length > 1,
+      evitaDuploIndireto: grupo.equipamentos.length > 1,
+    };
+  });
+
+  consolidacaoCategorias.forEach((grupo) => {
+    custo_unitario += grupo.custoUnitarioAgrupado;
+    preco_unitario += grupo.precoUnitarioFinal;
+    dieselR$M3_total += grupo.volumeReferencia > 0 ? grupo.somaDiesel / grupo.volumeReferencia : 0;
+    manutR$M3_total += grupo.volumeReferencia > 0 ? grupo.somaManutencao / grupo.volumeReferencia : 0;
+    moR$M3_total += grupo.volumeReferencia > 0 ? grupo.somaMaoDeObra / grupo.volumeReferencia : 0;
+    indiretoR$M3_total += grupo.volumeReferencia > 0 ? grupo.somaIndiretos / grupo.volumeReferencia : 0;
+    totalCustoEquipamentosObra += grupo.custoTotalAgrupado;
+    totalPrecoEquipamentosObra += grupo.totalFinalGrupo;
+  });
 
   // ── Transporte Agregado (caminhão truck / frete) ──
   // Entra como linha separada de composição. Não é equipamento operacional
@@ -1213,8 +1611,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   if (transporteAgregado.enabled) {
     custo_unitario += transporteAgregado.custoUnitarioTransporte;
     preco_unitario += transporteAgregado.precoUnitarioTransporte;
-    totalCustoEquipamentosObra += transporteAgregado.custoTotalFrete;
-    totalPrecoEquipamentosObra += transporteAgregado.totalVendaTransporte;
+    totalCustoTransporteAgregado += transporteAgregado.custoTotalFrete;
+    totalPrecoTransporteAgregado += transporteAgregado.totalVendaTransporte;
 
     const linhaTransporte = buildLinhaAuditoriaTransporteAgregado(transporteAgregado, item);
     if (linhaTransporte) detalheEquipamentos.push(linhaTransporte);
@@ -1222,10 +1620,10 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
 
   const markup_efetivo = custo_unitario > 0 ? preco_unitario / custo_unitario : 0;
   const total_item = totalPrecoEquipamentosObra > 0
-    ? totalPrecoEquipamentosObra
+    ? totalPrecoEquipamentosObra + totalPrecoTransporteAgregado
     : preco_unitario * quantidade;
   const total_custo_item = totalCustoEquipamentosObra > 0
-    ? totalCustoEquipamentosObra
+    ? totalCustoEquipamentosObra + totalCustoTransporteAgregado
     : custo_unitario * quantidade;
   const lucro_unitario = preco_unitario - custo_unitario;
   const margem_percentual = preco_unitario > 0 ? (lucro_unitario / preco_unitario) * 100 : 0;
@@ -1262,14 +1660,27 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       quantidadeEquipamentos: composicaoArea ? quantidadeEquipamentosArea : undefined,
       produtividadeHoraria: producaoConjuntoHora,
       producaoConjuntoHora,
+      producaoTotalEscavadeirasSelecionadas,
+      horasProducaoConjunta: horasFrenteEscavacao || horasMaquinaProprias,
+      dadosContratoJ24: horasFrenteEscavacao || horasMaquinaProprias,
+      horasTotaisProjeto: horasProjeto,
       usaProdutividadeDoItem,
+      modoCalculoEquipamentos: modoPlanilhaJoaoChecon ? "joao_checon" : "padrao",
+      reproduzPlanilhaJoaoChecon: modoPlanilhaJoaoChecon,
       modeloHorasMaquina,
+      modeloHorasMaquinaBase,
       horasMaquinaProprias,
       horasMaquinaGlobalObra,
+      horasFrenteEscavacao,
+      horasFrenteEscavacaoInfo,
+      horas_frente_escavacao: horasFrenteEscavacao,
+      horas_frente_escavacao_info: horasFrenteEscavacaoInfo,
       horasMaquinaOrigem,
       horasMaquinaNecessarias,
       horasBaseManutencaoTipo,
       horasBaseMOTipo,
+      horasBaseManutencaoOriginal,
+      horasBaseMOOriginal,
       categoriasExecutoras: categoriasExecutorasAuditoria,
       equipamentosExecutores: mapEquipamentosExecutoresAuditoria(linhasParaProducao, equipmentMap),
       numAuxiliares,
@@ -1289,6 +1700,8 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
       markupEfetivo: markup_efetivo,
     },
     equipamentos: detalheEquipamentos,
+    consolidacaoCategorias,
+    consolidacao_categorias: consolidacaoCategorias,
     validacoes: [],
   };
   if (volumeInSitu <= 0) {
@@ -1301,9 +1714,17 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   if (producaoConjuntoHora <= 0) {
     auditoria.validacoes.push({
       severidade: "erro",
-      mensagem: composicaoArea
-        ? "Informe produtividade válida em m²/h ou m²/dia para limpeza vegetal."
-        : "Produção conjunta da frota = 0.",
+      mensagem: modoPlanilhaJoaoChecon
+        ? "Modo Reproduzir planilha João Checon requer ao menos uma escavadeira selecionada com produtividade válida para formar o Dados do Contrato!J24."
+        : (composicaoArea
+          ? "Informe produtividade válida em m²/h ou m²/dia para limpeza vegetal."
+          : "Produção conjunta da frota = 0."),
+    });
+  }
+  if (modoPlanilhaJoaoChecon) {
+    auditoria.validacoes.push({
+      severidade: "info",
+      mensagem: "Modo Reproduzir planilha João Checon ativo: diesel usa Dados do Contrato!J24 para toda a frente; manutenção e mão de obra usam horas totais do projeto; markup e indireto são consolidados por categoria.",
     });
   }
   if (!composicaoArea && rateiaIndireto && indirectPersonnelOrcamento.length === 0) auditoria.validacoes.push({ severidade: "alerta", mensagem: "Aloque pelo menos uma pessoa indireta para que o overhead seja contabilizado." });
@@ -1315,6 +1736,14 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
         mensagem: `${e.equipamento}: ${e.volume_base_alerta}`,
       });
     });
+  detalheEquipamentos
+    .filter(e => e.validacao_horas_diesel)
+    .forEach(e => {
+      auditoria.validacoes.push({
+        severidade: "alerta",
+        mensagem: e.validacao_horas_diesel,
+      });
+    });
   if (indiretoBreakdown.ignorados && indiretoBreakdown.ignorados.length > 0) {
     auditoria.validacoes.push({
       severidade: "info",
@@ -1324,6 +1753,14 @@ const calcItemCostNovo = (item, equipmentMap, params, indirectPersonnel = [], co
   if (transporteAgregado.enabled && Array.isArray(transporteAgregado.validacoes)) {
     transporteAgregado.validacoes.forEach((v) => auditoria.validacoes.push(v));
   }
+  consolidacaoCategorias
+    .filter((g) => g.evitaDuploMarkup || g.evitaDuploIndireto)
+    .forEach((g) => {
+      auditoria.validacoes.push({
+        severidade: "info",
+        mensagem: `${g.categoria}: ${g.equipamentosIncluidos.join(", ")} consolidados por categoria. Indireto aplicado uma única vez no grupo da categoria, conforme planilha. Markup ${fmt(g.markupCategoria, 2)}x aplicado uma unica vez no grupo.`,
+      });
+    });
 
   return {
     // contrato com a UI existente
@@ -2338,11 +2775,17 @@ export const calcQuotationTotals = (
   params,
   { bdi, adminPct, mobilPct, riskPct, indirectPersonnel = [], totalHorasProjeto = 0, volumeEmpoladoObra = 0, volumeAterroInSitu = 0 },
 ) => {
-  const horasMaquinaGlobalInfo = calcHorasMaquinaGlobalObraDetalhes(items, equipmentMap);
-  const horasMaquinaGlobalObra = horasMaquinaGlobalInfo.horas;
+  const horasFrenteEscavacaoInfo = calcHorasMaquinaGlobalObraDetalhes(items, equipmentMap);
+  const horasFrenteEscavacao = horasFrenteEscavacaoInfo.horas;
+  const horasMaquinaGlobalInfo = horasFrenteEscavacaoInfo;
+  const horasMaquinaGlobalObra = horasFrenteEscavacao;
   const paramsComGlobal = {
     ...params,
     horas_maquina_global_obra: horasMaquinaGlobalObra,
+    horas_frente_escavacao: horasFrenteEscavacao,
+    horasFrenteEscavacao,
+    horas_frente_escavacao_info: horasFrenteEscavacaoInfo,
+    horasFrenteEscavacaoInfo,
   };
   const numOperadoresFrota = calcNumOperadoresFrota(items, paramsComGlobal);
   const itemsCalc = items.map(it => ({
@@ -2409,6 +2852,8 @@ export const calcQuotationTotals = (
     lucroLiquido,
     margemLiquida,
     aliquotaIR,
+    horasFrenteEscavacao,
+    horasFrenteEscavacaoInfo,
     horasMaquinaGlobalObra,
     horasMaquinaGlobalInfo,
   };

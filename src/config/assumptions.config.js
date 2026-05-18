@@ -72,6 +72,7 @@ export const ASSUMPTIONS = {
       valorDia:   40,
       diasMes:    30,
       horasRef:  180,
+      modoCalculo: "agrupado",
     },
   },
 

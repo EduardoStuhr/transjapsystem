@@ -27,6 +27,7 @@ export const INITIAL_PARAMS = {
   alimentacao_valor_dia:    ASSUMPTIONS.pessoasIndiretas.alimentacao.valorDia,
   alimentacao_dias_mes:     ASSUMPTIONS.pessoasIndiretas.alimentacao.diasMes,
   alimentacao_horas_ref:    ASSUMPTIONS.pessoasIndiretas.alimentacao.horasRef,
+  alimentacao_modo_calculo: ASSUMPTIONS.pessoasIndiretas.alimentacao.modoCalculo,
 
   // ── Markup por categoria de equipamento (substitui fatorBase × ajusteFinal) ──
   markup_por_categoria:     { ...ASSUMPTIONS.markupPorCategoria },
@@ -107,17 +108,17 @@ export const INITIAL_PARAMS = {
 //   - viagensPorHora       → viagens/h da escavadeira (cálculo de diesel por ciclo)
 //   - salario_operador_mensal      → legado (usado quando os campos acima estão vazios)
 export const INITIAL_EQUIPMENT = [
-  { id: uid(), name: "Escavadeira 312 DL",              category: "Escavadeira",    consumption: 12, custo_h_manutencao: 34.50, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 96,    productivity: 96,    viagensPorHora: 0 },
-  { id: uid(), name: "Escavadeira 320DL",               category: "Escavadeira",    consumption: 17, custo_h_manutencao: 37.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 153.6, productivity: 153.6, viagensPorHora: 0 },
-  { id: uid(), name: "Escavadeira 336DL",               category: "Escavadeira",    consumption: 37, custo_h_manutencao: 48.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 240,   productivity: 240,   viagensPorHora: 0 },
-  { id: uid(), name: "Escavadeira 345 GC",              category: "Escavadeira",    consumption: 39, custo_h_manutencao: 53.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 288,   productivity: 288,   viagensPorHora: 0 },
-  { id: uid(), name: "Trator de Esteiras Leve",         category: "Trator",         consumption: 28, custo_h_manutencao: 43.50, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 393.6, productivity: 393.6  },
-  { id: uid(), name: "Trator de Esteiras Pesado",       category: "Trator",         consumption: 39, custo_h_manutencao: 43.50, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 320,   productivity: 320    },
-  { id: uid(), name: "Motoniveladora (Patrol)",         category: "Motoniveladora", consumption: 17, custo_h_manutencao: 39.00, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 2000,  productivity: 2000   },
-  { id: uid(), name: "Grade Agrícola",                  category: "Grade",          consumption: 15, custo_h_manutencao: 18.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1500,  productivity: 1500   },
-  { id: uid(), name: "Rolo Compactador Pé de Carneiro", category: "Compactador",    consumption: 28, custo_h_manutencao: 35.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 250,   productivity: 250    },
-  { id: uid(), name: "Caminhão Pipa",                   category: "Pipa",           consumption: 8,  custo_h_manutencao: 34.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1,     productivity: 1      },
-  { id: uid(), name: "Caminhão Caçamba Truck",          category: "Caminhão",       consumption: 22, custo_h_manutencao: 22.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 14,    productivity: 14     },
+  { id: uid(), name: "Escavadeira 312 DL",              category: "Escavadeira",    consumption: 12, custo_h_manutencao: 34.50, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 96,    productivity: 96,    viagensPorHora: 0, origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Escavadeira 320DL",               category: "Escavadeira",    consumption: 17, custo_h_manutencao: 37.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 153.6, productivity: 153.6, viagensPorHora: 0, origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Escavadeira 336DL",               category: "Escavadeira",    consumption: 37, custo_h_manutencao: 48.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 240,   productivity: 240,   viagensPorHora: 0, origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Escavadeira 345 GC",              category: "Escavadeira",    consumption: 39, custo_h_manutencao: 53.00, categoria_operador: "operador_escavadeira", salario_operador_mensal: 3500, active: true, baseProductivity: 288,   productivity: 288,   viagensPorHora: 0, origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Trator de Esteiras Leve",         category: "Trator",         consumption: 28, custo_h_manutencao: 43.50, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 393.6, productivity: 393.6, origemHorasDiesel: "frente_escavacao"  },
+  { id: uid(), name: "Trator de Esteiras Pesado",       category: "Trator",         consumption: 39, custo_h_manutencao: 43.50, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 320,   productivity: 320,   origemHorasDiesel: "frente_escavacao"  },
+  { id: uid(), name: "Motoniveladora (Patrol)",         category: "Motoniveladora", consumption: 17, custo_h_manutencao: 39.00, categoria_operador: "operador_trator",      salario_operador_mensal: 2500, active: true, baseProductivity: 2000,  productivity: 2000,  origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Grade Agrícola",                  category: "Grade",          consumption: 15, custo_h_manutencao: 18.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1500,  productivity: 1500,  origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Rolo Compactador Pé de Carneiro", category: "Compactador",    consumption: 28, custo_h_manutencao: 35.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 250,   productivity: 250,   origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Caminhão Pipa",                   category: "Pipa",           consumption: 8,  custo_h_manutencao: 34.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 1,     productivity: 1,     origemHorasDiesel: "frente_escavacao" },
+  { id: uid(), name: "Caminhão Caçamba Truck",          category: "Caminhão",       consumption: 22, custo_h_manutencao: 22.00, categoria_operador: "auxiliar",             salario_operador_mensal: 2000, active: true, baseProductivity: 14,    productivity: 14,    origemHorasDiesel: "proprio_item" },
 ];
 
 // ══════════════════════════════════════════════════════════════════

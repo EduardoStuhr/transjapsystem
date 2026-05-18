@@ -54,6 +54,8 @@ const derivePessoaRSh = (base) => {
 
 const hydrateParams = (params) => ({
   ...params,
+  alimentacao_modo_calculo:
+    params.alimentacao_modo_calculo || ASSUMPTIONS.pessoasIndiretas.alimentacao.modoCalculo,
   mao_de_obra_direta_base: cloneBaseMap(
     params.mao_de_obra_direta_base || ASSUMPTIONS.maoDeObraDireta.porCategoriaOperadorBase
   ),
@@ -69,6 +71,7 @@ export default function Parametros({ params, setParams }) {
   const [local, setLocal] = useState(() => hydrateParams(params));
   const [focusedPessoaIndireta, setFocusedPessoaIndireta] = useState(null);
   const set  = (k, v) => setLocal(p => ({ ...p, [k]: parseFloat(v) || 0 }));
+  const setRaw = (k, v) => setLocal(p => ({ ...p, [k]: v }));
   const setFatorEmpolamento = (v) => {
     const parsed = parseFloat(v);
     setLocal(p => ({
@@ -423,6 +426,24 @@ export default function Parametros({ params, setParams }) {
           <Input label="Valor por pessoa/dia (R$)" value={local.alimentacao_valor_dia}  onChange={v => set("alimentacao_valor_dia", v)}  type="number" step="1" />
           <Input label="Dias por mês"              value={local.alimentacao_dias_mes}   onChange={v => set("alimentacao_dias_mes", v)}   type="number" step="1" />
           <Input label="Horas/mês de referência"   value={local.alimentacao_horas_ref}  onChange={v => set("alimentacao_horas_ref", v)}  type="number" step="1" />
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, color: S.muted }}>
+            Modo alimentação
+            <select
+              value={local.alimentacao_modo_calculo || "agrupado"}
+              onChange={(e) => setRaw("alimentacao_modo_calculo", e.target.value)}
+              style={{
+                background: "rgba(0,0,0,0.30)",
+                color: S.text,
+                border: `1px solid ${S.border}`,
+                borderRadius: 6,
+                padding: "8px 10px",
+                minHeight: 36,
+              }}
+            >
+              <option value="agrupado">Valor agrupado</option>
+              <option value="por_pessoa">Valor por pessoa</option>
+            </select>
+          </label>
         </Row>
       </div>
 

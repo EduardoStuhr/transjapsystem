@@ -181,6 +181,8 @@ export default function BudgetItem({
   const modeloHorasMaquinaEfetivo = item.modeloHorasMaquinaManual === true
     ? (item.modeloHorasMaquina || "proprio")
     : modeloHorasDefault;
+  const modoCalculoEquipamentos = item.modoCalculoEquipamentos || "padrao";
+  const modoJoaoCheconAtivo = modoCalculoEquipamentos === "joao_checon";
   useEffect(() => {
     const servico = services.find(s => s.id === item.serviceId);
     if (!servico) {
@@ -564,6 +566,7 @@ export default function BudgetItem({
               options={[
                 { value: "item", label: "Execução do item" },
                 { value: "maquina", label: "Horas-máquina" },
+                { value: "frente_escavacao", label: "Frente de escavação" },
                 { value: "projeto", label: "Horas-projeto" },
                 { value: "manual", label: "Horas manuais" },
                 { value: "fixo", label: "Valor fixo" },
@@ -576,6 +579,7 @@ export default function BudgetItem({
               options={[
                 { value: "item", label: "Execução do item" },
                 { value: "maquina", label: "Horas-máquina" },
+                { value: "frente_escavacao", label: "Frente de escavação" },
                 { value: "projeto", label: "Horas-projeto" },
                 { value: "manual", label: "Horas manuais" },
                 { value: "fixo", label: "Valor fixo" },
@@ -609,18 +613,44 @@ export default function BudgetItem({
           )}
           {usaComposicaoTecnica && (
             <Select
-              label="Modelo de horas-mÃ¡quina"
+              label="Modo cálculo equipamentos"
+              value={modoCalculoEquipamentos}
+              onChange={v => setField("modoCalculoEquipamentos", v)}
+              options={[
+                { value: "padrao", label: "Padrão do sistema" },
+                { value: "joao_checon", label: "Reproduzir planilha João Checon" },
+              ]}
+            />
+          )}
+          {usaComposicaoTecnica && !modoJoaoCheconAtivo && (
+            <Select
+              label="Modelo de horas-máquina"
               value={modeloHorasMaquinaEfetivo}
               onChange={v => setField("modeloHorasMaquina", v)}
               options={[
-                { value: "proprio", label: "PrÃ³prio do item" },
+                { value: "proprio", label: "Próprio do item" },
                 { value: "global_obra", label: "Global da obra" },
               ]}
             />
           )}
         </Row>
 
-        {usaComposicaoTecnica && modeloHorasMaquinaEfetivo === "global_obra" && (
+        {usaComposicaoTecnica && modoJoaoCheconAtivo && (
+          <div style={{
+            fontSize: 11,
+            color: S.muted,
+            padding: "6px 10px",
+            background: "rgba(59, 130, 246, 0.08)",
+            borderLeft: "3px solid rgba(59, 130, 246, 0.6)",
+          }}>
+            <strong style={{ color: S.text }}>Modo João Checon:</strong>{" "}
+            o diesel de toda a frente usa Dados do Contrato!J24
+            (volume in situ ÷ produção das escavadeiras selecionadas).
+            Manutenção e mão de obra usam horas totais do projeto; indireto e markup são aplicados uma única vez por categoria.
+          </div>
+        )}
+
+        {usaComposicaoTecnica && !modoJoaoCheconAtivo && modeloHorasMaquinaEfetivo === "global_obra" && (
           <div style={{
             fontSize: 11,
             color: S.muted,
@@ -630,8 +660,8 @@ export default function BudgetItem({
           }}>
             <strong style={{ color: S.text }}>Modelo planilha RONMA:</strong>{" "}
             o diesel deste item usa as horas globais das escavadeiras da obra
-            (volume de escavaÃ§Ã£o dividido pela produÃ§Ã£o das escavadeiras).
-            ManutenÃ§Ã£o e mÃ£o de obra continuam seguindo as bases selecionadas no item.
+            (volume de escavação dividido pela produção das escavadeiras).
+            Manutenção e mão de obra continuam seguindo as bases selecionadas no item.
           </div>
         )}
 
